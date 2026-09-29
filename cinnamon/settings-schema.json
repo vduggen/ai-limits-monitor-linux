@@ -1,0 +1,29 @@
+{
+    "layout": {
+        "type": "layout",
+        "pages": ["main"],
+        "main": {
+            "type": "page",
+            "title": "Linux Mint AI Limits Applet",
+            "sections": ["configuration", "behavior"]
+        },
+        "configuration": {
+            "type": "section",
+            "title": "Configuração das contas",
+            "keys": ["accounts-info"]
+        },
+        "behavior": {
+            "type": "section",
+            "title": "Comportamento",
+            "keys": ["popup-info"]
+        }
+    },
+    "accounts-info": {
+        "type": "label",
+        "description": "Use o botão de configuração do applet para abrir o editor de contas. Ele mostra todas as contas configuradas e permite escolher % restante ou % usado para cada uma."
+    },
+    "popup-info": {
+        "type": "label",
+        "description": "O popup mostra somente contas com dados utilizáveis e separa as contas por provedor. As janelas de sessão, semana e outras disponíveis continuam visíveis dentro da conta."
+    }
+}

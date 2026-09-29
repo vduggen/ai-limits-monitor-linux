@@ -1,0 +1,20 @@
+{
+  "pollIntervalSeconds": 60,
+  "probeTimeoutSeconds": 25,
+  "accounts": [
+    {
+      "id": "claude-default",
+      "label": "Claude pessoal",
+      "provider": "claude",
+      "displayMode": "remaining",
+      "configDir": "~/.claude"
+    },
+    {
+      "id": "codex-default",
+      "label": "Codex pessoal",
+      "provider": "codex",
+      "displayMode": "remaining",
+      "homeDir": "~/.codex"
+    }
+  ]
+}
