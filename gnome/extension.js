@@ -1,3 +1,4 @@
+import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import St from 'gi://St';
@@ -268,11 +269,11 @@ export default class AiLimitsMonitorExtension extends Extension {
                 }),
                 icon_size: 18,
                 style_class: 'system-status-icon',
-                y_align: St.Align.MIDDLE,
+                y_align: Clutter.ActorAlign.CENTER,
             });
             const label = new St.Label({
                 text: entry.text,
-                y_align: St.Align.MIDDLE,
+                y_align: Clutter.ActorAlign.CENTER,
             });
             group.add_child(icon);
             group.add_child(label);

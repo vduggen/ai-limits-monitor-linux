@@ -44,8 +44,8 @@ test("GNOME panel renders per-account provider icons and installs their assets",
   assert.match(extensionSource, /panelLabels\.entries/);
   assert.match(extensionSource, /new Gio\.FileIcon/);
   assert.match(extensionSource, /entry\.text/);
-  assert.match(extensionSource, /const icon = new St\.Icon\([\s\S]*?y_align: St\.Align\.MIDDLE/);
-  assert.match(extensionSource, /const label = new St\.Label\(\{\s*text: entry\.text,\s*y_align: St\.Align\.MIDDLE/);
+  assert.match(extensionSource, /const icon = new St\.Icon\([\s\S]*?y_align: Clutter\.ActorAlign\.CENTER/);
+  assert.match(extensionSource, /const label = new St\.Label\(\{\s*text: entry\.text,\s*y_align: Clutter\.ActorAlign\.CENTER/);
   assert.match(readme, /gnome\/claude\.svg gnome\/codex\.svg "\$TARGET\/"/);
 });
 

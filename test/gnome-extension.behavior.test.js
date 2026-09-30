@@ -77,6 +77,28 @@ function makeHarness() {
   const cacheDirectory = "/tmp/opencode-ai-limits-test/ai-limits-widget";
   let snapshot = { createdAt: "before-refresh" };
 
+  class Widget {
+    constructor(properties = {}) {
+      this.properties = properties;
+      this.children = [];
+    }
+
+    add_child(child) {
+      this.children.push(child);
+    }
+
+    set_style(style) {
+      this.style = style;
+    }
+
+    destroy() {
+      this.destroyed = true;
+    }
+  }
+
+  const St = { BoxLayout: Widget, Icon: Widget, Label: Widget };
+  const Clutter = { ActorAlign: { CENTER: "center" } };
+
   const schedule = (duration, callback) => {
     const id = nextSourceId++;
     sources.set(id, { duration, callback });
@@ -100,6 +122,11 @@ function makeHarness() {
   const Gio = {
     FileMonitorFlags: { WATCH_MOVES: 1 },
     SubprocessFlags: { NONE: 0 },
+    FileIcon: class {
+      constructor(properties) {
+        this.file = properties.file;
+      }
+    },
     File: {
       new_for_path: (filePath) => ({
         monitor_directory: (flags, cancellable) => {
@@ -147,6 +174,7 @@ function makeHarness() {
     "Gio",
     "GLib",
     "St",
+    "Clutter",
     "Extension",
     "Main",
     "PanelMenu",
@@ -159,7 +187,8 @@ function makeHarness() {
   )(
     Gio,
     GLib,
-    {},
+    St,
+    Clutter,
     class {},
     Main,
     {},
@@ -201,6 +230,7 @@ function makeEnabledExtension(harness) {
     _indicator: { menu: new Menu(), destroy() { this.destroyed = true; } },
     _panelBox: { add_child() {} },
     _panelEntries: [],
+    dir: { get_child: (name) => ({ name }) },
   });
   return extension;
 }
@@ -227,6 +257,18 @@ test("manualRefreshActivatesAsyncServiceRestartAndWaitsForNewSnapshot", () => {
   assert.equal(extension._pendingRefresh, null);
   assert.equal(extension._refreshItem.sensitive, true);
   assert.equal(harness.notifications[0].title, "Limites atualizados.");
+});
+
+test("panelRendererAlignsAccountWidgetsUsingClutter", () => {
+  const harness = makeHarness();
+  const extension = makeEnabledExtension(harness);
+
+  extension._renderPanel([{ provider: "claude", text: "CP 61% · 50%" }]);
+
+  const [group] = extension._panelEntries;
+  assert.equal(group.children.length, 2);
+  assert.equal(group.children[0].properties.y_align, "center");
+  assert.equal(group.children[1].properties.y_align, "center");
 });
 
 test("manualRefreshReportsSubprocessFailureAndTimeout", () => {
