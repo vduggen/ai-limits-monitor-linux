@@ -10,7 +10,7 @@ Depois de instalar as dependências e criar a configuração, execute o daemon e
 outro terminal:
 
 ```bash
-cd ~/ai-limits-monitor
+cd ~/ai-limits-monitor-linux
 pnpm watch
 ```
 
