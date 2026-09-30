@@ -180,8 +180,8 @@ Expected: all commands exit successfully; Node and Python suites report zero fai
 
 - [x] **Step 2: Review identity references.** Confirm current installation documentation and source contain no stale repository slug or checkout path except the intentional legacy config fallbacks and historical design/plan records.
 - [x] **Step 3: Confirm `pnpm-lock.yaml` has no diff** because the private package name is not recorded in the lockfile importer; regenerate it only if the package manager reports it is required.
-- [ ] **Step 4: Commit the reviewed spec and plan** with `git add docs/superpowers/specs/2026-09-30-project-identity-rename-design.md docs/superpowers/plans/2026-09-30-project-identity-rename.md && git commit -m "docs: record project identity migration"`.
-- [ ] **Step 5: Push `chore/rename-project` and open a separate PR against `main`** titled `chore: rename project identity to ai-limits-monitor-linux`. Do not include the GitHub repository rename in the code PR.
+- [x] **Step 4: Commit the reviewed spec and plan** with `git add docs/superpowers/specs/2026-09-30-project-identity-rename-design.md docs/superpowers/plans/2026-09-30-project-identity-rename.md && git commit -m "docs: record project identity migration"`.
+- [x] **Step 5: Push `chore/rename-project` and open a separate PR against `main`** titled `chore: rename project identity to ai-limits-monitor-linux`. Do not include the GitHub repository rename in the code PR.
 
 ### Task 5: Rename GitHub repository after the code PR is merged
 
