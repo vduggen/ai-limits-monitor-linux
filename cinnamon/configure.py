@@ -12,6 +12,8 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Pango", "1.0")
 from gi.repository import Gtk, Pango
 
+from config_paths import resolve_config_path
+
 
 APP_NAME = "Linux Mint AI Limits Applet"
 CACHE_PATH = Path.home() / ".cache" / "ai-limits-widget" / "usage.json"
@@ -19,36 +21,27 @@ SOURCE_TREE_CONFIG_PATH = (
     Path(__file__).resolve().parent.parent / "config" / "accounts.json"
 )
 HOME_INSTALL_CONFIG_PATH = (
-    Path.home() / "linux-mint-ai-limits-applet" / "config" / "accounts.json"
+    Path.home() / "ai-limits-monitor" / "config" / "accounts.json"
 )
 LEGACY_HOME_INSTALL_CONFIG_PATH = (
+    Path.home() / "linux-mint-ai-limits-applet" / "config" / "accounts.json"
+)
+OLDER_HOME_INSTALL_CONFIG_PATH = (
     Path.home() / "ai-limits-widget" / "config" / "accounts.json"
 )
 
 
 def config_path():
-    configured = os.environ.get("AI_LIMITS_CONFIG")
-    if configured:
-        candidate = Path(configured).expanduser()
-        if candidate.exists():
-            return candidate
-
-    try:
-        cache = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
-        cached_path = cache.get("configPath")
-        if cached_path and Path(cached_path).exists():
-            return Path(cached_path)
-    except (OSError, ValueError, TypeError):
-        pass
-
-    for candidate in (
-        SOURCE_TREE_CONFIG_PATH,
-        HOME_INSTALL_CONFIG_PATH,
-        LEGACY_HOME_INSTALL_CONFIG_PATH,
-    ):
-        if candidate.exists():
-            return candidate
-    return None
+    return resolve_config_path(
+        os.environ.get("AI_LIMITS_CONFIG"),
+        CACHE_PATH,
+        (
+            SOURCE_TREE_CONFIG_PATH,
+            HOME_INSTALL_CONFIG_PATH,
+            LEGACY_HOME_INSTALL_CONFIG_PATH,
+            OLDER_HOME_INSTALL_CONFIG_PATH,
+        ),
+    )
 
 
 def read_config(path):

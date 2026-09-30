@@ -10,7 +10,7 @@ Depois de instalar as dependências e criar a configuração, execute o daemon e
 outro terminal:
 
 ```bash
-cd ~/linux-mint-ai-limits-applet
+cd ~/ai-limits-monitor
 pnpm watch
 ```
 
@@ -19,12 +19,13 @@ Para instalar manualmente no Cinnamon:
 ```bash
 TARGET="$HOME/.local/share/cinnamon/applets/ai-limits-widget@vlduggen"
 mkdir -p "$TARGET"
-cp cinnamon/metadata.json cinnamon/applet.js cinnamon/settings-schema.json cinnamon/configure.py cinnamon/claude.svg cinnamon/codex.svg "$TARGET/"
+cp cinnamon/metadata.json cinnamon/applet.js cinnamon/settings-schema.json \
+  cinnamon/configure.py cinnamon/config_paths.py \
+  cinnamon/claude.svg cinnamon/codex.svg "$TARGET/"
 ```
 
-O comando acima presume que o projeto foi clonado em `~/linux-mint-ai-limits-applet`; se
-ele estiver em outro diretório, execute o `cp` a partir da raiz do projeto ou
-substitua os caminhos dos arquivos.
+O comando acima deve ser executado a partir da raiz do projeto. `configure.py` e
+`config_paths.py` precisam ficar lado a lado no diretório instalado.
 
 Depois, abra **Configurações do Sistema → Applets**, procure por **Linux Mint AI Limits Applet** e
 adicione-o ao painel.

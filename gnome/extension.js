@@ -1,3 +1,4 @@
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import St from 'gi://St';
 
@@ -96,26 +97,52 @@ export default class AiLimitsMonitorExtension extends Extension {
         this._addMenuItem(view.statusText, 'opacity: 0.72; font-size: 0.9em;');
         if (view.emptyText) {
             this._addMenuItem(view.emptyText, 'opacity: 0.72;');
+        } else {
+            view.groups.forEach((group, groupIndex) => {
+                if (groupIndex > 0)
+                    menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+                this._addMenuItem(group.label, 'font-weight: 700; opacity: 0.85;');
+                group.accounts.forEach((account, accountIndex) => {
+                    if (accountIndex > 0)
+                        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+                    this._addMenuItem(account.title, 'font-weight: 700;');
+                    if (account.metadata)
+                        this._addMenuItem(account.metadata, 'opacity: 0.72; font-size: 0.9em;');
+                    if (account.error)
+                        this._addMenuItem(account.error, 'color: #d96b6b;');
+                    for (const window of account.windows)
+                        this._addMenuItem(window.text);
+                });
+            });
+        }
+
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        const configureItem = new PopupMenu.PopupMenuItem('Configurar…');
+        configureItem.connect('activate', () => this._launchConfiguration());
+        menu.addMenuItem(configureItem);
+    }
+
+    _launchConfiguration() {
+        const configurePath = this.dir.get_child('configure.py').get_path();
+        let process;
+        try {
+            process = Gio.Subprocess.new(
+                ['python3', configurePath],
+                Gio.SubprocessFlags.NONE,
+            );
+        } catch (error) {
+            Main.notify('Não foi possível abrir a configuração.', error.message);
             return;
         }
 
-        view.groups.forEach((group, groupIndex) => {
-            if (groupIndex > 0)
-                menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-            this._addMenuItem(group.label, 'font-weight: 700; opacity: 0.85;');
-            group.accounts.forEach((account, accountIndex) => {
-                if (accountIndex > 0)
-                    menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-                this._addMenuItem(account.title, 'font-weight: 700;');
-                if (account.metadata)
-                    this._addMenuItem(account.metadata, 'opacity: 0.72; font-size: 0.9em;');
-                if (account.error)
-                    this._addMenuItem(account.error, 'color: #d96b6b;');
-                for (const window of account.windows)
-                    this._addMenuItem(window.text);
-            });
+        process.wait_check_async(null, (subprocess, result) => {
+            try {
+                subprocess.wait_check_finish(result);
+            } catch (error) {
+                Main.notify('O configurador terminou com erro.', error.message);
+            }
         });
     }
 }

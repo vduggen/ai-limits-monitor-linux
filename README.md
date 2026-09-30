@@ -27,22 +27,36 @@ configuração; ele deve permanecer fora do controle de versão.
 
 ## Pré-requisitos
 
-- Linux Mint com Cinnamon 5.4 ou mais recente;
+- Linux Mint com Cinnamon 5.4 ou mais recente, ou Ubuntu 24.04 LTS com GNOME Shell 46;
 - Node.js 22 ou mais recente;
 - pnpm;
 - `claude` instalado e autenticado com `claude auth login`;
 - `codex` instalado e autenticado com `codex login`.
 
+O editor gráfico de contas usa GTK 3 e PyGObject. No Ubuntu, instale as
+dependências com:
+
+```bash
+sudo apt install python3-gi gir1.2-gtk-3.0
+```
+
+Esse editor só é necessário para alterar o modo de exibição pela interface; as
+contas também podem ser editadas diretamente em `config/accounts.json`.
+
 As interfaces utilizadas pelo Claude Agent SDK e pelo Codex app-server podem
 mudar sem compatibilidade garantida.
+
+Se este clone estiver dentro de outro workspace pnpm e o `pnpm install` não
+criar as dependências locais, use `pnpm --ignore-workspace install` e prefixe os
+scripts deste repositório com `pnpm --ignore-workspace run`.
 
 ## Instalação rápida
 
 Clone o projeto no diretório usado pelo serviço de exemplo:
 
 ```bash
-git clone <URL-DO-REPOSITÓRIO> ~/linux-mint-ai-limits-applet
-cd ~/linux-mint-ai-limits-applet
+git clone <URL-DO-REPOSITÓRIO> ~/ai-limits-monitor
+cd ~/ai-limits-monitor
 pnpm install
 cp config/accounts.example.json config/accounts.json
 pnpm check
@@ -145,7 +159,8 @@ Com o daemon em execução, instale os arquivos do applet:
 TARGET="$HOME/.local/share/cinnamon/applets/ai-limits-widget@vlduggen"
 mkdir -p "$TARGET"
 cp cinnamon/metadata.json cinnamon/applet.js cinnamon/settings-schema.json \
-  cinnamon/configure.py cinnamon/claude.svg cinnamon/codex.svg "$TARGET/"
+  cinnamon/configure.py cinnamon/config_paths.py \
+  cinnamon/claude.svg cinnamon/codex.svg "$TARGET/"
 chmod +x "$TARGET/configure.py"
 ```
 
@@ -157,13 +172,21 @@ O UUID e o diretório de instalação do applet são
 `ai-limits-widget@vlduggen`. Se você tinha uma versão anterior instalada, remova
 essa entrada antiga do Cinnamon e adicione este applet novamente.
 
+## Extensão GNOME
+
+Para Ubuntu 24.04 LTS/GNOME Shell 46, siga o guia de instalação, atualização e
+remoção em [`gnome/README.md`](gnome/README.md). A extensão lê o mesmo cache e
+usa o serviço de usuário já documentado acima.
+
 ## Desenvolvimento
 
 ```bash
 pnpm check
 pnpm build
+pnpm test
+pnpm check:gnome
 node --check cinnamon/applet.js
-python3 -m py_compile cinnamon/configure.py
+python3 -m py_compile cinnamon/configure.py cinnamon/config_paths.py
 ```
 
 As fontes dos logomarks locais e as informações de terceiros estão documentadas
