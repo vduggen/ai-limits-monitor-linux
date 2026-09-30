@@ -27,6 +27,23 @@ pnpm build
 mkdir -p ~/.config/systemd/user
 cp systemd/linux-mint-ai-limits-applet.service.example \
   ~/.config/systemd/user/ai-limits-widget.service
+```
+
+O template usa `~/.local/bin/node`. Nesta validação Ubuntu 24.04.5, Node.js
+22.22.2 está em `~/.nvm/versions/node/v22.22.2/bin/node` e o link
+`~/.local/bin/node` não existe. O systemd não carrega os arquivos de inicialização
+do shell; se usar NVM, ajuste a unidade copiada antes de habilitar: use o caminho
+de `command -v node` em `ExecStart` e acrescente o diretório `bin` correspondente
+ao `PATH`:
+
+```ini
+Environment=PATH=%h/.nvm/versions/node/v22.22.2/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.nvm/versions/node/v22.22.2/bin/node %h/ai-limits-monitor/dist/index.js watch
+```
+
+Depois, habilite o serviço de usuário:
+
+```bash
 systemctl --user daemon-reload
 systemctl --user enable --now ai-limits-widget.service
 ```
