@@ -20,11 +20,13 @@ function copyCommandsContaining(readme, commandPrefix) {
 
 test("legacyCompatibilityIdentifiersRemainStable", async () => {
   const cinnamonMetadata = JSON.parse(await read("cinnamon/metadata.json"));
+  const gnomeMetadata = JSON.parse(await read("gnome/metadata.json"));
   const configSource = await read("src/config.ts");
   const configureSource = await read("cinnamon/configure.py");
   const serviceSource = await read("systemd/linux-mint-ai-limits-applet.service.example");
 
   assert.equal(cinnamonMetadata.uuid, "ai-limits-widget@vlduggen");
+  assert.equal(gnomeMetadata.uuid, "ai-limits-monitor@vlduggen");
   assert.match(configSource, /\.cache\/ai-limits-widget\/usage\.json/);
   assert.match(configureSource, /"ai-limits-widget"\s*\/\s*"usage\.json"/);
   assert.match(serviceSource, /ai-limits-widget\.service/);
@@ -47,7 +49,7 @@ test("visibleBrandingUsesTheGenericLinuxProductName", async () => {
   ]);
   const productName = "AI Limits Monitor for Linux";
 
-  assert.equal(packageJson.name, "ai-limits-monitor-for-linux");
+  assert.equal(packageJson.name, "ai-limits-monitor-linux");
   assert.match(packageJson.description, /AI Limits Monitor for Linux/);
   assert.equal(gnomeMetadata.name, productName);
   assert.equal(cinnamonMetadata.name, productName);

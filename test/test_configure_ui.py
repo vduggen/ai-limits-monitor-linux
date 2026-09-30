@@ -1,4 +1,6 @@
+import importlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -301,6 +303,30 @@ class ConfigurationWindowTests(unittest.TestCase):
         message = show_error.call_args.args[0]
         self.assertIn("accounts.json existente", message)
         self.assertIn("configuração inicial", message)
+
+    def test_configPathPrefersCanonicalInstallAndRetainsLegacyInstallFallbacks(self):
+        with patch("pathlib.Path.home", return_value=self.home):
+            importlib.reload(configure)
+        self.addCleanup(importlib.reload, configure)
+
+        candidates = [
+            self.home / "ai-limits-monitor-linux" / "config" / "accounts.json",
+            self.home / "ai-limits-monitor" / "config" / "accounts.json",
+            self.home / "linux-mint-ai-limits-applet" / "config" / "accounts.json",
+            self.home / "ai-limits-widget" / "config" / "accounts.json",
+        ]
+        for index, candidate in enumerate(candidates):
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+            candidate.write_text(json.dumps({"index": index}), encoding="utf-8")
+
+        with patch.object(
+            configure, "SOURCE_TREE_CONFIG_PATH", self.root / "missing-source" / "accounts.json"
+        ):
+            with patch.object(configure, "CACHE_PATH", self.root / "missing-cache" / "usage.json"):
+                with patch.dict(os.environ, {"AI_LIMITS_CONFIG": ""}):
+                    for candidate in candidates:
+                        self.assertEqual(configure.config_path(), candidate)
+                        candidate.unlink()
 
 
 if __name__ == "__main__":
