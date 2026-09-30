@@ -214,7 +214,11 @@ class ConfigurationWindow(Gtk.Window):
         combo.set_active_id(account.get("displayMode", "remaining"))
         row.pack_start(combo, False, False, 0)
         remove_button = Gtk.Button.new_with_label("Remover")
-        remove_button.set_sensitive(len(self._draft["accounts"]) > 1)
+        another_enabled_account = any(
+            other["id"] != account["id"] and other.get("enabled") is not False
+            for other in self._draft["accounts"]
+        )
+        remove_button.set_sensitive(another_enabled_account)
         remove_button.connect("clicked", self._remove_account, account["id"])
         row.pack_end(remove_button, False, False, 0)
 

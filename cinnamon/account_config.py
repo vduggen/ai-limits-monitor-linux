@@ -183,6 +183,8 @@ def remove_account(config: dict[str, Any], account_id: str) -> dict[str, Any]:
     remaining = [account for account in updated["accounts"] if account["id"] != account_id]
     if len(remaining) == len(updated["accounts"]):
         raise ValueError(f"Conta não encontrada: {account_id}")
+    if not any(account.get("enabled") is not False for account in remaining):
+        raise ValueError("Não é possível remover a última conta habilitada.")
     updated["accounts"] = remaining
     _validate_config(updated)
     return updated

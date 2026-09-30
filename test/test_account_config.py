@@ -131,6 +131,32 @@ class AccountConfigurationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "última conta"):
             remove_account(config, "claude-default")
 
+    def test_removeAccountRejectsLeavingOnlyDisabledAccounts(self):
+        config = {"accounts": [
+            {
+                "id": "claude-active",
+                "label": "Claude ativa",
+                "provider": "claude",
+                "configDir": "/tmp/claude-active",
+                "enabled": True,
+            },
+            {
+                "id": "claude-disabled",
+                "label": "Claude desativada",
+                "provider": "claude",
+                "configDir": "/tmp/claude-disabled",
+                "enabled": False,
+            },
+        ]}
+
+        with self.assertRaisesRegex(ValueError, "última conta habilitada"):
+            remove_account(config, "claude-active")
+
+        self.assertEqual(
+            [account["id"] for account in config["accounts"]],
+            ["claude-active", "claude-disabled"],
+        )
+
     def test_updateAccountPreservesProviderPaths(self):
         original = {
             "accounts": [{

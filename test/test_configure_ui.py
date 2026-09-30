@@ -77,6 +77,14 @@ class ConfigurationWindowTests(unittest.TestCase):
         self.assertIsNotNone(button, f"missing button: {label}")
         return button
 
+    def remove_button_for(self, window, account_label):
+        frame = next(
+            widget for widget in descendants(window)
+            if isinstance(widget, Gtk.Frame)
+            and widget.get_label().startswith(f"{account_label} ·")
+        )
+        return self.button_by_label(frame, "Remover")
+
     def test_existingConfigurationShowsAccountFieldsAndAddActions(self):
         codex_profile = self.home / ".codex"
         claude_profile = self.home / ".claude"
@@ -135,6 +143,31 @@ class ConfigurationWindowTests(unittest.TestCase):
         self.assertEqual(len(remaining_entries), 1)
         self.assertEqual(self.restart_calls, [])
         self.assertFalse(self.button_by_label(window, "Remover").get_sensitive())
+
+    def test_removeButtonCannotLeaveOnlyDisabledAccounts(self):
+        active_profile = self.home / ".claude-active"
+        disabled_profile = self.home / ".claude-disabled"
+        active_profile.mkdir()
+        disabled_profile.mkdir()
+        active = self.account_config("claude", "claude-active", "Claude ativa", active_profile)
+        active["enabled"] = True
+        disabled = self.account_config(
+            "claude", "claude-disabled", "Claude desativada", disabled_profile
+        )
+        disabled["enabled"] = False
+        config = {"accounts": [active, disabled]}
+        self.write_config(config)
+        window = self.make_window(config, lambda _name: "/usr/bin/provider-cli")
+
+        active_remove = self.remove_button_for(window, "Claude ativa")
+        self.assertFalse(active_remove.get_sensitive())
+        self.remove_button_for(window, "Claude desativada").clicked()
+
+        self.assertEqual(
+            [account["id"] for account in window._draft["accounts"]],
+            ["claude-active"],
+        )
+        self.assertFalse(self.remove_button_for(window, "Claude ativa").get_sensitive())
 
     def test_saveWritesAccountsAndRestartsOnce(self):
         codex_profile = self.home / ".codex"
