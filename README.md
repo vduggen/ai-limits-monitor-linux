@@ -12,6 +12,8 @@ com suporte a múltiplas contas e períodos de uso.
   do Claude Code;
 - Codex: inicia `codex app-server` e consulta `account/rateLimits/read`;
 - múltiplas contas Claude e Codex, isoladas por `CLAUDE_CONFIG_DIR` e `CODEX_HOME`;
+- gerenciador GTK para adicionar perfis detectados ou pastas alternativas, editar
+  rótulos/modo de exibição e remover contas;
 - percentual configurável por conta: `% restante` ou `% usado`;
 - daemon separado do applet, cache local e atualização periódica;
 - painel com uma entrada por conta utilizável, mostrando o logo, as iniciais da
@@ -43,8 +45,20 @@ dependências com:
 sudo apt install python3-gi gir1.2-gtk-3.0
 ```
 
-Esse editor só é necessário para alterar o modo de exibição pela interface; as
-contas também podem ser editadas diretamente em `config/accounts.json`.
+O item **Configurar…** do applet Cinnamon ou da extensão GNOME abre esse editor.
+Ele descobre `~/.claude` e `~/.codex` quando o CLI correspondente está instalado,
+e permite selecionar outras pastas de perfil já existentes. Rótulos, modo de
+exibição e remoções são aplicados juntos por **Salvar**; o serviço do usuário é
+reiniciado uma vez para consultar os dados atualizados. A interface não instala
+CLIs, não inicia autenticação e não lê nem guarda tokens: use os CLIs oficiais
+(`claude auth login` ou `codex login`) para preparar cada perfil.
+
+O gerenciador exige um `config/accounts.json` já existente. A configuração
+inicial continua sendo criada durante a instalação com o exemplo abaixo; a
+interface não instala o serviço nem cria o primeiro arquivo. Usar **Configurar…**
+ou **Atualizar agora** não exige logout/login. Ao instalar uma nova versão
+JavaScript da extensão GNOME, uma única recarga da sessão pode ser necessária
+para carregar o código novo.
 
 As interfaces utilizadas pelo Claude Agent SDK e pelo Codex app-server podem
 mudar sem compatibilidade garantida.
@@ -66,10 +80,15 @@ pnpm check
 pnpm build
 ```
 
-Edite `config/accounts.json` para informar as contas autenticadas. O arquivo
-`config/accounts.json` é ignorado pelo Git de propósito.
+O arquivo `config/accounts.json` é ignorado pelo Git de propósito. Depois de
+instalar o serviço e o applet/extensão, use **Configurar…** para selecionar os
+perfis já autenticados e ajustar as contas sem editar o JSON à mão.
 
 ## Configuração de contas
+
+Para mudanças cotidianas, use o gerenciador **Configurar…**. Os exemplos a seguir
+mostram como preparar perfis extras pelos CLIs oficiais; os objetos JSON são uma
+referência para configuração manual avançada.
 
 Para uma segunda conta Claude:
 
@@ -167,7 +186,7 @@ Com o daemon em execução, instale os arquivos do applet:
 TARGET="$HOME/.local/share/cinnamon/applets/ai-limits-widget@vlduggen"
 mkdir -p "$TARGET"
 cp cinnamon/metadata.json cinnamon/applet.js cinnamon/settings-schema.json \
-  cinnamon/configure.py cinnamon/config_paths.py \
+  cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py \
   cinnamon/claude.svg cinnamon/codex.svg "$TARGET/"
 chmod +x "$TARGET/configure.py"
 ```
@@ -194,7 +213,9 @@ pnpm build
 pnpm test
 pnpm check:gnome
 node --check cinnamon/applet.js
-python3 -m py_compile cinnamon/configure.py cinnamon/config_paths.py
+sudo apt install python3-gi gir1.2-gtk-3.0 xvfb
+xvfb-run -a python3 -m unittest discover -s test -v
+python3 -m py_compile cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py
 ```
 
 As fontes dos logomarks locais e as informações de terceiros estão documentadas

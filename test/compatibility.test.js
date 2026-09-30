@@ -4,6 +4,20 @@ import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
+function copyCommandsContaining(readme, commandPrefix) {
+  const lines = readme.split("\n");
+  const commands = [];
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    if (!lines[lineIndex].trimStart().startsWith(commandPrefix))
+      continue;
+    const parts = [lines[lineIndex].trim()];
+    while (parts.at(-1).endsWith("\\"))
+      parts.push(lines[++lineIndex].trim());
+    commands.push(parts.join(" "));
+  }
+  return commands;
+}
+
 test("legacyCompatibilityIdentifiersRemainStable", async () => {
   const cinnamonMetadata = JSON.parse(await read("cinnamon/metadata.json"));
   const configSource = await read("src/config.ts");
@@ -40,4 +54,24 @@ test("visibleBrandingUsesTheGenericLinuxProductName", async () => {
   assert.equal(settings.layout.main.title, productName);
   for (const source of sources)
     assert.ok(source.includes(productName), `Expected source to include ${productName}`);
+});
+
+test("manualInstallCommandsIncludeAccountAndCacheHelpers", async () => {
+  const readme = await read("README.md");
+  const cinnamonReadme = await read("cinnamon/README.md");
+  const gnomeReadme = await read("gnome/README.md");
+
+  const rootCinnamonCopies = copyCommandsContaining(readme, "cp cinnamon/metadata.json");
+  const cinnamonCopies = copyCommandsContaining(cinnamonReadme, "cp cinnamon/metadata.json");
+  const gnomeCopies = copyCommandsContaining(gnomeReadme, "cp gnome/metadata.json");
+  const gnomeEditorCopies = copyCommandsContaining(gnomeReadme, "cp cinnamon/configure.py");
+
+  assert.equal(rootCinnamonCopies.length, 1);
+  assert.ok(rootCinnamonCopies[0].includes("cinnamon/account_config.py"));
+  assert.equal(cinnamonCopies.length, 1);
+  assert.ok(cinnamonCopies[0].includes("cinnamon/account_config.py"));
+  assert.equal(gnomeCopies.length, 2);
+  assert.ok(gnomeCopies.every((command) => command.includes("gnome/cache-events.js")));
+  assert.equal(gnomeEditorCopies.length, 2);
+  assert.ok(gnomeEditorCopies.every((command) => command.includes("cinnamon/account_config.py")));
 });

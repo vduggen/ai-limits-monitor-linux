@@ -14,6 +14,9 @@ usuário continua sendo `ai-limits-widget.service` para preservar compatibilidad
   sudo apt install python3-gi gir1.2-gtk-3.0
   ```
 
+Autentique os perfis pelos comandos oficiais `claude auth login` e `codex login`.
+A extensão não instala os CLIs nem inicia ou armazena autenticação.
+
 O daemon é independente do GNOME Shell e deve estar ativo como serviço do
 usuário. Na raiz do clone, instale as dependências, crie `config/accounts.json`
 e gere a compilação:
@@ -55,15 +58,16 @@ editor para localizar essa configuração.
 ## Instalar e habilitar
 
 Copie a extensão e o editor compartilhado para o diretório de extensões do
-usuário. `configure.py` e `config_paths.py` precisam ficar lado a lado:
+usuário. `configure.py`, `config_paths.py` e `account_config.py` precisam ficar
+lado a lado:
 
 ```bash
 UUID=ai-limits-monitor@vlduggen
 TARGET="$HOME/.local/share/gnome-shell/extensions/$UUID"
 mkdir -p "$TARGET"
-cp gnome/metadata.json gnome/extension.js gnome/snapshot.js \
+cp gnome/metadata.json gnome/extension.js gnome/snapshot.js gnome/cache-events.js \
   gnome/claude.svg gnome/codex.svg "$TARGET/"
-cp cinnamon/configure.py cinnamon/config_paths.py "$TARGET/"
+cp cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py "$TARGET/"
 ```
 
 Na primeira instalação, encerre e inicie novamente a sessão GNOME para que o
@@ -78,9 +82,14 @@ as iniciais do nome e até dois percentuais, respeitando `% restante` ou `% usad
 da configuração daquela conta. Contas sem limites utilizáveis não ocupam espaço
 no painel. Clique nele para ver a idade do snapshot, contas, planos, períodos e
 horários de reset. Snapshots antigos são marcados como **antigo** no painel e
-como desatualizados no menu. **Configurar…** abre o editor GTK 3 sem bloquear o
-GNOME Shell. A extensão só lê o cache; as consultas continuam sendo feitas pelo
-daemon.
+como desatualizados no menu. A extensão só lê o cache; as consultas continuam
+sendo feitas pelo daemon.
+
+**Configurar…** abre o gerenciador visual de contas. Ele detecta os perfis padrão
+dos CLIs e permite adicionar pastas existentes, editar rótulos/modos ou remover
+contas. É necessário ter uma configuração existente; a interface não cria o
+primeiro `config/accounts.json`. **Salvar** grava as alterações e reinicia o
+serviço uma única vez. Nenhuma dessas ações exige logout/login.
 
 ## Atualizar
 
@@ -90,9 +99,9 @@ Na raiz do clone atualizado, copie novamente os arquivos para o mesmo diretório
 UUID=ai-limits-monitor@vlduggen
 TARGET="$HOME/.local/share/gnome-shell/extensions/$UUID"
 gnome-extensions disable "$UUID"
-cp gnome/metadata.json gnome/extension.js gnome/snapshot.js \
+cp gnome/metadata.json gnome/extension.js gnome/snapshot.js gnome/cache-events.js \
   gnome/claude.svg gnome/codex.svg "$TARGET/"
-cp cinnamon/configure.py cinnamon/config_paths.py "$TARGET/"
+cp cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py "$TARGET/"
 gnome-extensions enable "$UUID"
 ```
 
@@ -100,6 +109,14 @@ Atualize o daemon separadamente com `pnpm install`, `pnpm build` e reinicie
 `systemctl --user restart ai-limits-widget.service` se o código do daemon mudou.
 Não substitua a unidade instalada se ela tiver caminhos próprios para uma
 instalação anterior.
+
+O item **Atualizar agora** no menu GNOME reinicia o serviço do usuário sem
+bloquear o Shell. A extensão observa o cache e redesenha o painel/menu quando um
+snapshot novo chega; o timer de 30 segundos continua como fallback. A ação fica
+desabilitada enquanto aguarda o resultado e informa falhas/timeout. Não é preciso
+fazer logout para alterar contas ou solicitar uma consulta. Ao instalar código
+JavaScript novo, use o fluxo de atualização acima; se o Shell mantiver o módulo
+antigo carregado, uma recarga da sessão poderá ser necessária uma única vez.
 
 ## Remover
 
@@ -123,13 +140,14 @@ manualmente a unidade de usuário somente se não precisar mais dela.
    (`stat -c '%a' ~/.cache/ai-limits-widget/usage.json` deve retornar `600`).
 3. Confira os valores Claude/Codex no painel e abra o menu para verificar contas,
    detalhes dos períodos e horário da última atualização.
-4. Use **Configurar…**, altere o modo de exibição de uma conta e confirme a
-   mensagem de salvamento. Verifique que
-   `systemctl --user show ai-limits-widget.service -p ActiveEnterTimestamp`
-   avançou após o reinício solicitado pelo editor.
-5. Aguarde uma nova atualização e confirme que o indicador reflete o snapshot.
-   Também confirme o estado de cache ausente em um usuário de teste sem cache e
-   que um snapshot com mais de dois minutos seja sinalizado como antigo.
+4. Abra **Configurar…** e confirme que contas, rótulos, modos e ações disponíveis
+   correspondem à configuração, sem pressionar **Salvar** ao testar com dados
+   reais.
+5. Use **Atualizar agora**. Confirme que `createdAt` do cache avança e que o
+   painel/menu se atualizam sem encerrar a sessão. Verifique também no menu os
+   estados de cache ausente e snapshot antigo em uma conta de teste isolada.
+6. Para verificar erros de CLI ou serviço, use uma configuração/serviço de teste;
+   não altere credenciais nem a configuração real apenas para provocar falhas.
 
 Não é necessário habilitar o serviço como root; tanto a extensão como o daemon
 pertencem à sessão do usuário.
