@@ -1,7 +1,7 @@
 {
   "uuid": "ai-limits-widget@vlduggen",
-  "name": "Linux Mint AI Limits Applet",
-  "description": "Applet Cinnamon para mostrar os limites de uso do Claude e Codex.",
+  "name": "AI Limits Monitor for Linux",
+  "description": "Applet Cinnamon para monitorar limites de uso do Claude e Codex no Linux.",
   "version": "0.1.0",
   "external-configuration-app": "configure.py",
   "multiversion": true,

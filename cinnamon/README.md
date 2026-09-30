@@ -1,4 +1,4 @@
-# Linux Mint AI Limits Applet
+# AI Limits Monitor for Linux — Cinnamon
 
 O applet lê o snapshot gerado pelo daemon em:
 
@@ -27,7 +27,7 @@ cp cinnamon/metadata.json cinnamon/applet.js cinnamon/settings-schema.json \
 O comando acima deve ser executado a partir da raiz do projeto. `configure.py` e
 `config_paths.py` precisam ficar lado a lado no diretório instalado.
 
-Depois, abra **Configurações do Sistema → Applets**, procure por **Linux Mint AI Limits Applet** e
+Depois, abra **Configurações do Sistema → Applets**, procure por **AI Limits Monitor for Linux** e
 adicione-o ao painel.
 
 O UUID `ai-limits-widget@vlduggen` identifica o applet. Se uma versão anterior

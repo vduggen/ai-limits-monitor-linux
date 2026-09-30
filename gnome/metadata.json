@@ -1,7 +1,7 @@
 {
   "uuid": "ai-limits-monitor@vlduggen",
-  "name": "AI Limits Monitor",
-  "description": "Monitor Claude and Codex usage limits from the desktop panel.",
+  "name": "AI Limits Monitor for Linux",
+  "description": "Monitor Claude and Codex usage limits from the desktop panel on Linux.",
   "shell-version": ["46"],
   "version": 1
 }

@@ -1,6 +1,6 @@
 [Unit]
 # The installed unit name remains ai-limits-widget.service for compatibility.
-Description=AI Limits Monitor usage service
+Description=AI Limits Monitor for Linux usage service
 After=network-online.target
 Wants=network-online.target
 

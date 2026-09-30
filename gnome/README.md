@@ -1,4 +1,4 @@
-# Extensão GNOME Shell
+# AI Limits Monitor for Linux — GNOME Shell
 
 Este guia cobre a instalação manual por usuário no Ubuntu 24.04 LTS com GNOME
 Shell 46. A extensão lê `~/.cache/ai-limits-widget/usage.json`; o serviço do

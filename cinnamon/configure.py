@@ -15,7 +15,7 @@ from gi.repository import Gtk, Pango
 from config_paths import resolve_config_path
 
 
-APP_NAME = "Linux Mint AI Limits Applet"
+APP_NAME = "AI Limits Monitor for Linux"
 CACHE_PATH = Path.home() / ".cache" / "ai-limits-widget" / "usage.json"
 SOURCE_TREE_CONFIG_PATH = (
     Path(__file__).resolve().parent.parent / "config" / "accounts.json"

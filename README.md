@@ -1,7 +1,7 @@
-# Linux Mint AI Limits Applet
+# AI Limits Monitor for Linux
 
-Applet para Cinnamon no Linux Mint que acompanha limites de assinatura do Claude
-Code e do Codex, com suporte a múltiplas contas e múltiplos períodos de uso.
+Monitor de limites de assinatura do Claude Code e Codex para o painel do Linux,
+com suporte a múltiplas contas e períodos de uso.
 
 > Projeto comunitário e experimental. Não é afiliado, endossado ou patrocinado
 > pela Anthropic, OpenAI ou Linux Mint.
@@ -27,7 +27,8 @@ configuração; ele deve permanecer fora do controle de versão.
 
 ## Pré-requisitos
 
-- Linux Mint com Cinnamon 5.4 ou mais recente, ou Ubuntu 24.04 LTS com GNOME Shell 46;
+- Linux Mint 21.3+ com Cinnamon 5.4 ou mais recente;
+- Ubuntu 24.04 LTS com GNOME Shell 46;
 - Node.js 22 ou mais recente;
 - pnpm;
 - `claude` instalado e autenticado com `claude auth login`;
@@ -129,7 +130,11 @@ cp systemd/linux-mint-ai-limits-applet.service.example ~/.config/systemd/user/ai
 ```
 
 O arquivo de exemplo usa `~/.local/bin/node`. Ajuste `PATH` e `ExecStart` caso
-o Node esteja instalado em outro local. Em seguida:
+o Node esteja instalado em outro local. O exemplo aponta para `~/ai-limits-monitor`
+e destina-se a instalações novas.
+Instalações existentes devem manter o diretório e os caminhos da unidade que já
+está em uso; não copie o exemplo por cima de uma unidade personalizada sem
+ajustá-la. Em seguida:
 
 ```bash
 systemctl --user daemon-reload
@@ -138,7 +143,8 @@ systemctl --user status ai-limits-widget.service
 ```
 
 O arquivo local ainda se chama `ai-limits-widget.service` para preservar
-instalações anteriores; o nome público do projeto é `linux-mint-ai-limits-applet`.
+instalações anteriores. O nome do produto é **AI Limits Monitor for Linux**; o
+slug público do repositório continua `linux-mint-ai-limits-applet`.
 
 O cache padrão fica em `~/.cache/ai-limits-widget/usage.json`. O nome
 `ai-limits-widget` é um identificador legado mantido para preservar instalações
@@ -164,7 +170,7 @@ cp cinnamon/metadata.json cinnamon/applet.js cinnamon/settings-schema.json \
 chmod +x "$TARGET/configure.py"
 ```
 
-Depois, abra **Configurações do Sistema → Applets**, procure por **Linux Mint AI Limits Applet** e
+Depois, abra **Configurações do Sistema → Applets**, procure por **AI Limits Monitor for Linux** e
 adicione-o ao painel. O item **Configurar…** do applet abre o editor gráfico para
 escolher `% restante` ou `% usado` por conta.
 
