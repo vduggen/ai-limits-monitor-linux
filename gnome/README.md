@@ -6,7 +6,7 @@ usuário continua sendo `ai-limits-widget.service` para preservar compatibilidad
 
 ## Pré-requisitos
 
-- o repositório clonado em `~/ai-limits-monitor`;
+- o repositório clonado em `~/ai-limits-monitor-linux`;
 - Node.js 22+, pnpm, `claude` e `codex` instalados e autenticados;
 - Python 3, PyGObject e GTK 3 para abrir o editor de contas:
 
@@ -22,13 +22,13 @@ usuário. Na raiz do clone, instale as dependências, crie `config/accounts.json
 e gere a compilação:
 
 ```bash
-cd ~/ai-limits-monitor
+cd ~/ai-limits-monitor-linux
 pnpm install
 cp config/accounts.example.json config/accounts.json
 pnpm check
 pnpm build
 mkdir -p ~/.config/systemd/user
-cp systemd/linux-mint-ai-limits-applet.service.example \
+cp systemd/ai-limits-monitor-linux.service.example \
   ~/.config/systemd/user/ai-limits-widget.service
 ```
 
@@ -41,7 +41,7 @@ ao `PATH`:
 
 ```ini
 Environment=PATH=%h/.nvm/versions/node/v22.22.2/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=%h/.nvm/versions/node/v22.22.2/bin/node %h/ai-limits-monitor/dist/index.js watch
+ExecStart=%h/.nvm/versions/node/v22.22.2/bin/node %h/ai-limits-monitor-linux/dist/index.js watch
 ```
 
 Depois, habilite o serviço de usuário:

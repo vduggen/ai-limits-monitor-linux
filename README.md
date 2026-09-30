@@ -72,8 +72,8 @@ scripts deste repositório com `pnpm --ignore-workspace run`.
 Clone o projeto no diretório usado pelo serviço de exemplo:
 
 ```bash
-git clone <URL-DO-REPOSITÓRIO> ~/ai-limits-monitor
-cd ~/ai-limits-monitor
+git clone https://github.com/vduggen/ai-limits-monitor-linux.git ~/ai-limits-monitor-linux
+cd ~/ai-limits-monitor-linux
 pnpm install
 cp config/accounts.example.json config/accounts.json
 pnpm check
@@ -147,15 +147,23 @@ Para instalar o daemon como serviço do usuário:
 ```bash
 pnpm build
 mkdir -p ~/.config/systemd/user
-cp systemd/linux-mint-ai-limits-applet.service.example ~/.config/systemd/user/ai-limits-widget.service
+cp systemd/ai-limits-monitor-linux.service.example ~/.config/systemd/user/ai-limits-widget.service
 ```
 
 O arquivo de exemplo usa `~/.local/bin/node`. Ajuste `PATH` e `ExecStart` caso
-o Node esteja instalado em outro local. O exemplo aponta para `~/ai-limits-monitor`
-e destina-se a instalações novas.
-Instalações existentes devem manter o diretório e os caminhos da unidade que já
-está em uso; não copie o exemplo por cima de uma unidade personalizada sem
-ajustá-la. Em seguida:
+o Node esteja instalado em outro local. O exemplo aponta para
+`~/ai-limits-monitor-linux` e destina-se a instalações novas. Instalações
+existentes não precisam ser reinstaladas; não copie o exemplo por cima de uma
+unidade personalizada. Se você mover o clone existente para outro diretório,
+edite a unidade instalada e atualize `WorkingDirectory` e `ExecStart` para o novo
+caminho do clone. Depois, aplique a alteração com:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user restart ai-limits-widget.service
+```
+
+Para uma instalação nova, habilite o serviço:
 
 ```bash
 systemctl --user daemon-reload
@@ -164,8 +172,8 @@ systemctl --user status ai-limits-widget.service
 ```
 
 O arquivo local ainda se chama `ai-limits-widget.service` para preservar
-instalações anteriores. O nome do produto é **AI Limits Monitor for Linux**; o
-slug público do repositório continua `linux-mint-ai-limits-applet`.
+instalações anteriores. O nome do produto é **AI Limits Monitor for Linux** e o
+slug público do repositório é `ai-limits-monitor-linux`.
 
 O cache padrão fica em `~/.cache/ai-limits-widget/usage.json`. O nome
 `ai-limits-widget` é um identificador legado mantido para preservar instalações

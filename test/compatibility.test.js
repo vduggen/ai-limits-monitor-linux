@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -20,11 +20,13 @@ function copyCommandsContaining(readme, commandPrefix) {
 
 test("legacyCompatibilityIdentifiersRemainStable", async () => {
   const cinnamonMetadata = JSON.parse(await read("cinnamon/metadata.json"));
+  const gnomeMetadata = JSON.parse(await read("gnome/metadata.json"));
   const configSource = await read("src/config.ts");
   const configureSource = await read("cinnamon/configure.py");
-  const serviceSource = await read("systemd/linux-mint-ai-limits-applet.service.example");
+  const serviceSource = await read("systemd/ai-limits-monitor-linux.service.example");
 
   assert.equal(cinnamonMetadata.uuid, "ai-limits-widget@vlduggen");
+  assert.equal(gnomeMetadata.uuid, "ai-limits-monitor@vlduggen");
   assert.match(configSource, /\.cache\/ai-limits-widget\/usage\.json/);
   assert.match(configureSource, /"ai-limits-widget"\s*\/\s*"usage\.json"/);
   assert.match(serviceSource, /ai-limits-widget\.service/);
@@ -43,11 +45,11 @@ test("visibleBrandingUsesTheGenericLinuxProductName", async () => {
     read("README.md"),
     read("cinnamon/README.md"),
     read("gnome/README.md"),
-    read("systemd/linux-mint-ai-limits-applet.service.example"),
+    read("systemd/ai-limits-monitor-linux.service.example"),
   ]);
   const productName = "AI Limits Monitor for Linux";
 
-  assert.equal(packageJson.name, "ai-limits-monitor-for-linux");
+  assert.equal(packageJson.name, "ai-limits-monitor-linux");
   assert.match(packageJson.description, /AI Limits Monitor for Linux/);
   assert.equal(gnomeMetadata.name, productName);
   assert.equal(cinnamonMetadata.name, productName);
@@ -74,4 +76,36 @@ test("manualInstallCommandsIncludeAccountAndCacheHelpers", async () => {
   assert.ok(gnomeCopies.every((command) => command.includes("gnome/cache-events.js")));
   assert.equal(gnomeEditorCopies.length, 2);
   assert.ok(gnomeEditorCopies.every((command) => command.includes("cinnamon/account_config.py")));
+});
+
+test("manualInstallCommandsUseCanonicalRepositoryPaths", async () => {
+  const readme = await read("README.md");
+  const cinnamonReadme = await read("cinnamon/README.md");
+  const gnomeReadme = await read("gnome/README.md");
+
+  assert.match(
+    readme,
+    /git clone https:\/\/github\.com\/vduggen\/ai-limits-monitor-linux\.git ~\/ai-limits-monitor-linux/,
+  );
+  assert.match(readme, /cd ~\/ai-limits-monitor-linux/);
+  assert.match(cinnamonReadme, /cd ~\/ai-limits-monitor-linux/);
+  assert.match(gnomeReadme, /`~\/ai-limits-monitor-linux`/);
+  assert.match(gnomeReadme, /cd ~\/ai-limits-monitor-linux/);
+  assert.match(
+    readme,
+    /cp systemd\/ai-limits-monitor-linux\.service\.example ~\/.config\/systemd\/user\/ai-limits-widget\.service/,
+  );
+  assert.match(gnomeReadme, /systemd\/ai-limits-monitor-linux\.service\.example/);
+
+  const systemdFiles = await readdir(new URL("../systemd/", import.meta.url));
+  assert.ok(systemdFiles.includes("ai-limits-monitor-linux.service.example"));
+
+  const serviceSource = await read("systemd/ai-limits-monitor-linux.service.example");
+  assert.match(serviceSource, /WorkingDirectory=%h\/ai-limits-monitor-linux/);
+  assert.match(
+    serviceSource,
+    /ExecStart=%h\/.local\/bin\/node %h\/ai-limits-monitor-linux\/dist\/index\.js watch/,
+  );
+  assert.match(serviceSource, /ai-limits-widget\.service/);
+  assert.match(readme, /WorkingDirectory` e `ExecStart`/);
 });
