@@ -15,7 +15,8 @@ Code e do Codex, com suporte a múltiplas contas e múltiplos períodos de uso.
 - percentual configurável por conta: `% restante` ou `% usado`;
 - daemon separado do applet, cache local e atualização periódica;
 - painel com uma entrada por conta utilizável, mostrando o logo, as iniciais da
-  conta e os dois principais períodos;
+  conta e os dois principais períodos; o nome completo continua disponível no
+  popup detalhado;
 - popup com contas, planos, e-mails, janelas e horários de reset;
 - contas sem limites de assinatura são marcadas como `unsupported` e não aparecem
   no popup operacional.

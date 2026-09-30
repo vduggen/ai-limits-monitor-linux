@@ -306,7 +306,6 @@ class AiLimitsApplet extends Applet.Applet {
                     y_align: St.Align.END,
                 });
 
-                if (account) group.set_tooltip_text(account.label);
                 group.add(icon);
                 group.add(label);
                 this.content.add(group);

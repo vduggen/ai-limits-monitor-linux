@@ -40,7 +40,7 @@ gráfico com uma opção real para cada conta.
 
 No painel, cada conta utilizável aparece em uma entrada própria com o logo do
 provedor, as iniciais do nome e os dois percentuais principais. O nome completo
-fica disponível ao passar o mouse sobre a entrada.
+continua disponível no popup detalhado.
 
 Também é possível editar o campo diretamente no `config/accounts.json`. Cada
 conta pode usar:
