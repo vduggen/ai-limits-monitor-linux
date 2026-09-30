@@ -61,7 +61,8 @@ usuário. `configure.py` e `config_paths.py` precisam ficar lado a lado:
 UUID=ai-limits-monitor@vlduggen
 TARGET="$HOME/.local/share/gnome-shell/extensions/$UUID"
 mkdir -p "$TARGET"
-cp gnome/metadata.json gnome/extension.js gnome/snapshot.js "$TARGET/"
+cp gnome/metadata.json gnome/extension.js gnome/snapshot.js \
+  gnome/claude.svg gnome/codex.svg "$TARGET/"
 cp cinnamon/configure.py cinnamon/config_paths.py "$TARGET/"
 ```
 
@@ -72,11 +73,14 @@ Shell descubra a nova extensão. Depois habilite-a:
 gnome-extensions enable ai-limits-monitor@vlduggen
 ```
 
-O indicador Claude/Codex aparece no painel. Clique nele para ver a idade do
-snapshot, as contas suportadas, os períodos, percentuais e horários de reset.
-Snapshots antigos são marcados como **antigo** no painel e como desatualizados no
-menu. **Configurar…** abre o editor GTK 3 sem bloquear o GNOME Shell. A extensão
-só lê o cache; as consultas continuam sendo feitas pelo daemon.
+Cada conta utilizável aparece em uma entrada horizontal com o logo do provedor,
+as iniciais do nome e até dois percentuais, respeitando `% restante` ou `% usado`
+da configuração daquela conta. Contas sem limites utilizáveis não ocupam espaço
+no painel. Clique nele para ver a idade do snapshot, contas, planos, períodos e
+horários de reset. Snapshots antigos são marcados como **antigo** no painel e
+como desatualizados no menu. **Configurar…** abre o editor GTK 3 sem bloquear o
+GNOME Shell. A extensão só lê o cache; as consultas continuam sendo feitas pelo
+daemon.
 
 ## Atualizar
 
@@ -86,7 +90,8 @@ Na raiz do clone atualizado, copie novamente os arquivos para o mesmo diretório
 UUID=ai-limits-monitor@vlduggen
 TARGET="$HOME/.local/share/gnome-shell/extensions/$UUID"
 gnome-extensions disable "$UUID"
-cp gnome/metadata.json gnome/extension.js gnome/snapshot.js "$TARGET/"
+cp gnome/metadata.json gnome/extension.js gnome/snapshot.js \
+  gnome/claude.svg gnome/codex.svg "$TARGET/"
 cp cinnamon/configure.py cinnamon/config_paths.py "$TARGET/"
 gnome-extensions enable "$UUID"
 ```

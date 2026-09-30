@@ -11,6 +11,7 @@ function snapshotText(accounts, createdAt = new Date(NOW).toISOString(), version
 
 function account({
   id,
+  label = id,
   provider = "claude",
   status = "ok",
   displayMode = "remaining",
@@ -18,7 +19,7 @@ function account({
   plan,
   email,
 }) {
-  return { id, label: id, provider, status, displayMode, windows, plan, email };
+  return { id, label, provider, status, displayMode, windows, plan, email };
 }
 
 function window({
@@ -232,5 +233,74 @@ test("panelLabelsMarkStaleValuesAsOld", () => {
   assert.deepEqual(buildPanelLabels(stale), {
     claude: "Claude 60% (antigo)",
     codex: "Codex --% (antigo)",
+    entries: [
+      { provider: "claude", initials: "C", text: "C 60% (antigo)" },
+    ],
   });
+});
+
+test("panelEntriesShowUsableAccountsWithInitialsAndTheirConfiguredValues", () => {
+  const view = buildSnapshotView(snapshotText([
+    account({
+      id: "claude-personal",
+      label: "Claude pessoal",
+      provider: "claude",
+      windows: [
+        window({ id: "session", kind: "session", label: "Sessão", usedPercent: 40 }),
+        window({ id: "weekly", kind: "weekly", label: "Semanal", usedPercent: 65 }),
+        window({ id: "monthly", kind: "monthly", label: "Mensal", usedPercent: 5 }),
+      ],
+    }),
+    account({
+      id: "claude-work",
+      label: "Claude trabalho max",
+      provider: "claude",
+      windows: [window({ id: "session", kind: "session", label: "Sessão", usedPercent: 20 })],
+    }),
+    account({
+      id: "codex-personal",
+      label: "Codex pessoal",
+      provider: "codex",
+      displayMode: "used",
+      windows: [
+        window({ id: "session", kind: "session", label: "Sessão", usedPercent: 96 }),
+        window({ id: "weekly", kind: "weekly", label: "Semanal", usedPercent: 55 }),
+      ],
+    }),
+    account({
+      id: "claude-error",
+      label: "Claude erro",
+      status: "error",
+      windows: [window({ id: "session", kind: "session", label: "Sessão", usedPercent: 99 })],
+    }),
+    account({ id: "codex-empty", provider: "codex", windows: [] }),
+    account({
+      id: "codex-unsupported",
+      provider: "codex",
+      status: "unsupported",
+      windows: [window({ id: "session", kind: "session", label: "Sessão", usedPercent: 99 })],
+    }),
+  ]), NOW);
+
+  assert.deepEqual(buildPanelLabels(view).entries, [
+    { provider: "claude", initials: "CP", text: "CP 60% · 35%" },
+    { provider: "claude", initials: "CTM", text: "CTM 80%" },
+    { provider: "codex", initials: "CP", text: "CP 96% · 55%" },
+  ]);
+});
+
+test("panelEntriesOmitUnconfiguredProvidersAndMarkStaleValues", () => {
+  const stale = buildSnapshotView(snapshotText([
+    account({
+      id: "codex-personal",
+      label: "Codex pessoal",
+      provider: "codex",
+      windows: [window({ id: "session", kind: "session", label: "Sessão", usedPercent: 80 })],
+    }),
+  ], new Date(NOW - 120_001).toISOString()), NOW);
+
+  assert.deepEqual(buildPanelLabels(stale).entries, [
+    { provider: "codex", initials: "CP", text: "CP 20% (antigo)" },
+  ]);
+  assert.deepEqual(buildPanelLabels(buildSnapshotView(null, NOW)).entries, []);
 });

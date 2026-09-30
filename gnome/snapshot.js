@@ -282,14 +282,39 @@ export function buildPanelLabels(snapshotView) {
     : snapshotView.timestampInFuture
       ? " (horário incerto)"
       : "";
-  return Object.fromEntries([
-    ["claude", "Claude"],
-    ["codex", "Codex"],
-  ].map(([provider, label]) => {
+  const providers = ["claude", "codex"];
+  const accounts = Array.isArray(snapshotView.accounts) ? snapshotView.accounts : [];
+  const entries = providers.flatMap((provider) => accounts
+    .filter((account) => account.provider === provider
+      && account.status === "ok"
+      && Array.isArray(account.windows)
+      && account.windows.length > 0)
+    .map((account) => {
+      const initials = accountInitials(account);
+      const values = providerIndicators([account], provider)
+        .map((indicator) => `${indicator.value}%`)
+        .join(" · ");
+      return {
+        provider,
+        initials,
+        text: `${initials} ${values}${staleMarker}`,
+      };
+    }));
+
+  const labels = Object.fromEntries(providers.map((provider) => {
+    const label = provider === "claude" ? "Claude" : "Codex";
     const indicators = snapshotView.indicators[provider];
     const value = indicators.length > 0
       ? indicators.map((indicator) => `${indicator.value}%`).join(" · ")
       : "--%";
     return [provider, `${label} ${value}${staleMarker}`];
   }));
+  return { ...labels, entries };
+}
+
+function accountInitials(account) {
+  const source = String(account.label || account.id || "").trim();
+  const words = source.split(/[\s_-]+/).filter(Boolean);
+  const initials = words.map((word) => Array.from(word)[0]).join("").toUpperCase();
+  return initials.slice(0, 3) || "??";
 }
