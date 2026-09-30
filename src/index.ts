@@ -98,7 +98,7 @@ async function main(): Promise<void> {
       if (options.json) {
         console.log(JSON.stringify(snapshot, null, 2));
       } else {
-        console.log(`Linux Mint AI Limits Applet · ${new Date(snapshot.createdAt).toLocaleString("pt-BR")}`);
+        console.log(`AI Limits Monitor for Linux · ${new Date(snapshot.createdAt).toLocaleString("pt-BR")}`);
         for (const usage of snapshot.accounts) printUsage(usage);
         console.log(`\nCache: ${cachePath()}`);
       }

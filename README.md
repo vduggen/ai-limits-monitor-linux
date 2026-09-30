@@ -1,7 +1,7 @@
-# Linux Mint AI Limits Applet
+# AI Limits Monitor for Linux
 
-Applet para Cinnamon no Linux Mint que acompanha limites de assinatura do Claude
-Code e do Codex, com suporte a múltiplas contas e múltiplos períodos de uso.
+Monitor de limites de assinatura do Claude Code e Codex para o painel do Linux,
+com suporte a múltiplas contas e períodos de uso.
 
 > Projeto comunitário e experimental. Não é afiliado, endossado ou patrocinado
 > pela Anthropic, OpenAI ou Linux Mint.
@@ -12,6 +12,8 @@ Code e do Codex, com suporte a múltiplas contas e múltiplos períodos de uso.
   do Claude Code;
 - Codex: inicia `codex app-server` e consulta `account/rateLimits/read`;
 - múltiplas contas Claude e Codex, isoladas por `CLAUDE_CONFIG_DIR` e `CODEX_HOME`;
+- gerenciador GTK para adicionar perfis detectados ou pastas alternativas, editar
+  rótulos/modo de exibição e remover contas;
 - percentual configurável por conta: `% restante` ou `% usado`;
 - daemon separado do applet, cache local e atualização periódica;
 - painel com uma entrada por conta utilizável, mostrando o logo, as iniciais da
@@ -29,32 +31,64 @@ configuração; ele deve permanecer fora do controle de versão.
 
 ## Pré-requisitos
 
-- Linux Mint com Cinnamon 5.4 ou mais recente;
+- Linux Mint 21.3+ com Cinnamon 5.4 ou mais recente;
+- Ubuntu 24.04 LTS com GNOME Shell 46;
 - Node.js 22 ou mais recente;
 - pnpm;
 - `claude` instalado e autenticado com `claude auth login`;
 - `codex` instalado e autenticado com `codex login`.
 
+O editor gráfico de contas usa GTK 3 e PyGObject. No Ubuntu, instale as
+dependências com:
+
+```bash
+sudo apt install python3-gi gir1.2-gtk-3.0
+```
+
+O item **Configurar…** do applet Cinnamon ou da extensão GNOME abre esse editor.
+Ele descobre `~/.claude` e `~/.codex` quando o CLI correspondente está instalado,
+e permite selecionar outras pastas de perfil já existentes. Rótulos, modo de
+exibição e remoções são aplicados juntos por **Salvar**; o serviço do usuário é
+reiniciado uma vez para consultar os dados atualizados. A interface não instala
+CLIs, não inicia autenticação e não lê nem guarda tokens: use os CLIs oficiais
+(`claude auth login` ou `codex login`) para preparar cada perfil.
+
+O gerenciador exige um `config/accounts.json` já existente. A configuração
+inicial continua sendo criada durante a instalação com o exemplo abaixo; a
+interface não instala o serviço nem cria o primeiro arquivo. Usar **Configurar…**
+ou **Atualizar agora** não exige logout/login. Ao instalar uma nova versão
+JavaScript da extensão GNOME, uma única recarga da sessão pode ser necessária
+para carregar o código novo.
+
 As interfaces utilizadas pelo Claude Agent SDK e pelo Codex app-server podem
 mudar sem compatibilidade garantida.
+
+Se este clone estiver dentro de outro workspace pnpm e o `pnpm install` não
+criar as dependências locais, use `pnpm --ignore-workspace install` e prefixe os
+scripts deste repositório com `pnpm --ignore-workspace run`.
 
 ## Instalação rápida
 
 Clone o projeto no diretório usado pelo serviço de exemplo:
 
 ```bash
-git clone <URL-DO-REPOSITÓRIO> ~/linux-mint-ai-limits-applet
-cd ~/linux-mint-ai-limits-applet
+git clone <URL-DO-REPOSITÓRIO> ~/ai-limits-monitor
+cd ~/ai-limits-monitor
 pnpm install
 cp config/accounts.example.json config/accounts.json
 pnpm check
 pnpm build
 ```
 
-Edite `config/accounts.json` para informar as contas autenticadas. O arquivo
-`config/accounts.json` é ignorado pelo Git de propósito.
+O arquivo `config/accounts.json` é ignorado pelo Git de propósito. Depois de
+instalar o serviço e o applet/extensão, use **Configurar…** para selecionar os
+perfis já autenticados e ajustar as contas sem editar o JSON à mão.
 
 ## Configuração de contas
+
+Para mudanças cotidianas, use o gerenciador **Configurar…**. Os exemplos a seguir
+mostram como preparar perfis extras pelos CLIs oficiais; os objetos JSON são uma
+referência para configuração manual avançada.
 
 Para uma segunda conta Claude:
 
@@ -117,7 +151,11 @@ cp systemd/linux-mint-ai-limits-applet.service.example ~/.config/systemd/user/ai
 ```
 
 O arquivo de exemplo usa `~/.local/bin/node`. Ajuste `PATH` e `ExecStart` caso
-o Node esteja instalado em outro local. Em seguida:
+o Node esteja instalado em outro local. O exemplo aponta para `~/ai-limits-monitor`
+e destina-se a instalações novas.
+Instalações existentes devem manter o diretório e os caminhos da unidade que já
+está em uso; não copie o exemplo por cima de uma unidade personalizada sem
+ajustá-la. Em seguida:
 
 ```bash
 systemctl --user daemon-reload
@@ -126,7 +164,8 @@ systemctl --user status ai-limits-widget.service
 ```
 
 O arquivo local ainda se chama `ai-limits-widget.service` para preservar
-instalações anteriores; o nome público do projeto é `linux-mint-ai-limits-applet`.
+instalações anteriores. O nome do produto é **AI Limits Monitor for Linux**; o
+slug público do repositório continua `linux-mint-ai-limits-applet`.
 
 O cache padrão fica em `~/.cache/ai-limits-widget/usage.json`. O nome
 `ai-limits-widget` é um identificador legado mantido para preservar instalações
@@ -147,11 +186,12 @@ Com o daemon em execução, instale os arquivos do applet:
 TARGET="$HOME/.local/share/cinnamon/applets/ai-limits-widget@vlduggen"
 mkdir -p "$TARGET"
 cp cinnamon/metadata.json cinnamon/applet.js cinnamon/settings-schema.json \
-  cinnamon/configure.py cinnamon/claude.svg cinnamon/codex.svg "$TARGET/"
+  cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py \
+  cinnamon/claude.svg cinnamon/codex.svg "$TARGET/"
 chmod +x "$TARGET/configure.py"
 ```
 
-Depois, abra **Configurações do Sistema → Applets**, procure por **Linux Mint AI Limits Applet** e
+Depois, abra **Configurações do Sistema → Applets**, procure por **AI Limits Monitor for Linux** e
 adicione-o ao painel. O item **Configurar…** do applet abre o editor gráfico para
 escolher `% restante` ou `% usado` por conta.
 
@@ -159,13 +199,23 @@ O UUID e o diretório de instalação do applet são
 `ai-limits-widget@vlduggen`. Se você tinha uma versão anterior instalada, remova
 essa entrada antiga do Cinnamon e adicione este applet novamente.
 
+## Extensão GNOME
+
+Para Ubuntu 24.04 LTS/GNOME Shell 46, siga o guia de instalação, atualização e
+remoção em [`gnome/README.md`](gnome/README.md). A extensão lê o mesmo cache e
+usa o serviço de usuário já documentado acima.
+
 ## Desenvolvimento
 
 ```bash
 pnpm check
 pnpm build
+pnpm test
+pnpm check:gnome
 node --check cinnamon/applet.js
-python3 -m py_compile cinnamon/configure.py
+sudo apt install python3-gi gir1.2-gtk-3.0 xvfb
+xvfb-run -a python3 -m unittest discover -s test -v
+python3 -m py_compile cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py
 ```
 
 As fontes dos logomarks locais e as informações de terceiros estão documentadas
