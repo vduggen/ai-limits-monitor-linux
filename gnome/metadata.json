@@ -1,0 +1,7 @@
+{
+  "uuid": "ai-limits-monitor@vlduggen",
+  "name": "AI Limits Monitor",
+  "description": "Monitor Claude and Codex usage limits from the desktop panel.",
+  "shell-version": ["46"],
+  "version": 1
+}

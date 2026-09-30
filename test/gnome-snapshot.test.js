@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildSnapshotView, formatReset } from "../gnome/snapshot.js";
+import { buildMenuView, buildPanelLabels, buildSnapshotView, formatReset } from "../gnome/snapshot.js";
 
 const NOW = Date.parse("2026-09-30T12:00:00.000Z");
 
@@ -151,4 +151,72 @@ test("invalidResetTimesUseFallbackText", () => {
   assert.equal(formatReset(undefined, NOW), "reset não informado");
   assert.equal(formatReset("not-a-date", NOW), "reset não informado");
   assert.equal(formatReset(new Date(NOW).toISOString(), NOW).endsWith("(em 0m)"), true);
+});
+
+test("menuViewExplainsCacheStatesAndFiltersUnsupportedAccounts", () => {
+  const missing = buildMenuView(buildSnapshotView(null, NOW), NOW);
+  assert.equal(missing.statusText, "Cache ainda não disponível.");
+  assert.equal(missing.emptyText, "Nenhum dado no cache.");
+
+  const invalid = buildMenuView(buildSnapshotView("{", NOW), NOW);
+  assert.equal(invalid.statusText, "Cache inválido.");
+
+  const view = buildSnapshotView(
+    snapshotText([
+      {
+        ...account({ id: "claude-error", status: "error", plan: "Pro", email: "claude@example.test" }),
+        error: "Falha de autenticação",
+      },
+      account({
+        id: "codex-ok",
+        provider: "codex",
+        displayMode: "used",
+        windows: [window({ id: "weekly", kind: "weekly", label: "Semanal", usedPercent: 32, resetsAt: "2026-10-01T12:00:00.000Z" })],
+      }),
+      account({ id: "unsupported", provider: "claude", status: "unsupported" }),
+    ], new Date(NOW - 240_000).toISOString()),
+    NOW,
+  );
+  const menu = buildMenuView(view, NOW);
+
+  assert.match(menu.statusText, /Dados desatualizados/);
+  assert.match(menu.statusText, /há 4min/);
+  assert.deepEqual(menu.groups.map(({ provider }) => provider), ["claude", "codex"]);
+  assert.deepEqual(menu.groups[0].accounts[0], {
+    title: "claude-error · Pro",
+    metadata: "claude@example.test · Exibição: % restante",
+    error: "Falha de autenticação",
+    windows: [],
+  });
+  assert.deepEqual(menu.groups[1].accounts[0], {
+    title: "codex-ok",
+    metadata: "Exibição: % usado",
+    error: null,
+    windows: [
+      {
+        text: `Semanal: 32% usado · ${formatReset("2026-10-01T12:00:00.000Z", NOW)}`,
+      },
+    ],
+  });
+
+  const unsupportedOnly = buildMenuView(buildSnapshotView(
+    snapshotText([account({ id: "unsupported", status: "unsupported" })]),
+    NOW,
+  ), NOW);
+  assert.equal(unsupportedOnly.groups.length, 0);
+  assert.equal(unsupportedOnly.emptyText, "Nenhuma conta reportou limites utilizáveis.");
+});
+
+test("panelLabelsMarkStaleValuesAsOld", () => {
+  const stale = buildSnapshotView(snapshotText([
+    account({
+      id: "claude",
+      windows: [window({ id: "session", kind: "session", label: "Sessão", usedPercent: 40 })],
+    }),
+  ], new Date(NOW - 120_001).toISOString()), NOW);
+
+  assert.deepEqual(buildPanelLabels(stale), {
+    claude: "Claude 60% (antigo)",
+    codex: "Codex --% (antigo)",
+  });
 });

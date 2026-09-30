@@ -69,6 +69,7 @@ function normalizeAccount(candidate) {
     displayMode: candidate.displayMode === "used" ? "used" : "remaining",
     ...(typeof candidate.plan === "string" ? { plan: candidate.plan } : {}),
     ...(typeof candidate.email === "string" ? { email: candidate.email } : {}),
+    ...(typeof candidate.error === "string" ? { error: candidate.error } : {}),
     windows,
   };
 }
@@ -180,4 +181,103 @@ export function formatReset(resetsAt, nowMs = Date.now()) {
       ? `${hours}h ${minutes}m`
       : `${minutes}m`;
   return `${dateText} (em ${countdown})`;
+}
+
+function formatSnapshotAge(ageMs) {
+  if (!Number.isFinite(ageMs)) return "idade desconhecida";
+
+  const elapsedSeconds = Math.floor(Math.max(0, ageMs) / 1000);
+  if (elapsedSeconds < 60) return `há ${elapsedSeconds}s`;
+
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) return `há ${elapsedMinutes}min`;
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  const minutes = elapsedMinutes % 60;
+  if (elapsedHours < 24) {
+    return minutes > 0 ? `há ${elapsedHours}h ${minutes}min` : `há ${elapsedHours}h`;
+  }
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  const hours = elapsedHours % 24;
+  return hours > 0 ? `há ${elapsedDays}d ${hours}h` : `há ${elapsedDays}d`;
+}
+
+export function buildMenuView(snapshotView, nowMs = Date.now()) {
+  if (snapshotView.state === "missing") {
+    return {
+      statusText: "Cache ainda não disponível.",
+      groups: [],
+      emptyText: "Nenhum dado no cache.",
+    };
+  }
+  if (snapshotView.state === "invalid") {
+    return {
+      statusText: "Cache inválido.",
+      groups: [],
+      emptyText: "Nenhum dado no cache.",
+    };
+  }
+
+  const age = formatSnapshotAge(snapshotView.ageMs ?? Math.max(0, nowMs - Date.parse(snapshotView.createdAt)));
+  const statusText = snapshotView.state === "stale"
+    ? `Dados desatualizados — atualizado ${age}.`
+    : `Atualizado ${age}.`;
+  const providerNames = [
+    ["claude", "Claude"],
+    ["codex", "Codex"],
+  ];
+  const usableAccounts = Array.isArray(snapshotView.accounts)
+    ? snapshotView.accounts.filter((account) => account.status !== "unsupported")
+    : [];
+  const groups = providerNames.map(([provider, label]) => ({
+    provider,
+    label,
+    accounts: usableAccounts
+      .filter((account) => account.provider === provider)
+      .map((account) => {
+        const mode = account.displayMode === "used" ? "used" : "remaining";
+        const windows = account.status === "ok"
+          ? account.windows.map((window) => {
+            const percent = mode === "used" ? window.usedPercent : window.remainingPercent;
+            const modeLabel = mode === "used" ? "usado" : "restante";
+            return {
+              text: `${window.label}: ${percent}% ${modeLabel} · ${formatReset(window.resetsAt, nowMs)}`,
+            };
+          })
+          : [];
+
+        return {
+          title: `${account.label}${account.plan ? ` · ${account.plan}` : ""}`,
+          metadata: [
+            account.email,
+            `Exibição: ${mode === "used" ? "% usado" : "% restante"}`,
+          ].filter(Boolean).join(" · "),
+          error: account.status === "error"
+            ? account.error || "Não foi possível consultar esta conta."
+            : null,
+          windows,
+        };
+      }),
+  })).filter((group) => group.accounts.length > 0);
+
+  return {
+    statusText,
+    groups,
+    emptyText: groups.length > 0 ? null : "Nenhuma conta reportou limites utilizáveis.",
+  };
+}
+
+export function buildPanelLabels(snapshotView) {
+  const staleMarker = snapshotView.state === "stale" ? " (antigo)" : "";
+  return Object.fromEntries([
+    ["claude", "Claude"],
+    ["codex", "Codex"],
+  ].map(([provider, label]) => {
+    const indicators = snapshotView.indicators[provider];
+    const value = indicators.length > 0
+      ? indicators.map((indicator) => `${indicator.value}%`).join(" · ")
+      : "--%";
+    return [provider, `${label} ${value}${staleMarker}`];
+  }));
 }
