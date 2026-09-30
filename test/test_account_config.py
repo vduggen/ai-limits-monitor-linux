@@ -12,6 +12,7 @@ from cinnamon.account_config import (
     load_config,
     provider_cli_available,
     remove_account,
+    restart_user_service,
     save_config,
     update_account,
 )
@@ -187,6 +188,13 @@ class AccountConfigurationTests(unittest.TestCase):
                     "configDir": "/tmp/profile",
                     "displayMode": [],
                 }]},
+                {"accounts": [{
+                    "id": "null-mode",
+                    "label": "Modo nulo",
+                    "provider": "claude",
+                    "configDir": "/tmp/profile",
+                    "displayMode": None,
+                }]},
             ]
 
             for config in invalid_configs:
@@ -239,6 +247,31 @@ class AccountConfigurationTests(unittest.TestCase):
 
             self.assertEqual(path.read_text(encoding="utf-8"), previous)
             self.assertEqual(list(path.parent.glob(".accounts.*.tmp")), [])
+
+    def test_restartFailureIsReportedAfterConfigIsPersisted(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "accounts.json"
+            config = {"accounts": [{
+                "id": "codex-default",
+                "label": "Codex pessoal",
+                "provider": "codex",
+                "homeDir": "~/.codex",
+            }]}
+            save_config(path, config)
+            calls = []
+
+            def failed_runner(command, **options):
+                calls.append((command, options))
+                return SimpleNamespace(returncode=1, stderr="service unavailable")
+
+            with self.assertRaisesRegex(RuntimeError, "service unavailable"):
+                restart_user_service(failed_runner)
+
+            self.assertEqual(load_config(path), config)
+            self.assertEqual(calls[0][0], [
+                "systemctl", "--user", "restart", "ai-limits-widget.service",
+            ])
+            self.assertEqual(calls[0][1]["timeout"], 10)
 
 
 if __name__ == "__main__":

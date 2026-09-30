@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import uuid
 from typing import Any
@@ -86,7 +87,7 @@ def _validate_config(config: dict[str, Any]) -> None:
         if not isinstance(provider, str) or provider not in _PROVIDER_PROFILE_KEYS:
             raise ValueError(f"Provedor inválido na conta '{account_id}'.")
         display_mode = account.get("displayMode")
-        if display_mode is not None and (
+        if "displayMode" in account and (
             not isinstance(display_mode, str) or display_mode not in _DISPLAY_MODES
         ):
             raise ValueError(f"Modo de exibição inválido na conta '{account_id}'.")
@@ -208,3 +209,20 @@ def save_config(path: Path, config: dict[str, Any]) -> None:
         except FileNotFoundError:
             pass
         raise
+
+
+def restart_user_service(runner: Callable[..., Any] = subprocess.run) -> None:
+    """Request a refresh by restarting the user's monitor service."""
+    result = runner(
+        ["systemctl", "--user", "restart", "ai-limits-widget.service"],
+        check=False,
+        timeout=10,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        if not detail:
+            detail = f"systemctl retornou código {result.returncode}"
+        raise RuntimeError(f"Não foi possível reiniciar o monitor: {detail}")
