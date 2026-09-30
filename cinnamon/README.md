@@ -38,6 +38,10 @@ letras auxiliares. O popup separa as contas por provedor e exibe as janelas
 disponíveis dentro de cada conta. O botão de configuração abre um editor
 gráfico com uma opção real para cada conta.
 
+No painel, cada conta utilizável aparece em uma entrada própria com o logo do
+provedor, as iniciais do nome e os dois percentuais principais. O nome completo
+fica disponível ao passar o mouse sobre a entrada.
+
 Também é possível editar o campo diretamente no `config/accounts.json`. Cada
 conta pode usar:
 

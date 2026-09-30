@@ -14,7 +14,8 @@ Code e do Codex, com suporte a múltiplas contas e múltiplos períodos de uso.
 - múltiplas contas Claude e Codex, isoladas por `CLAUDE_CONFIG_DIR` e `CODEX_HOME`;
 - percentual configurável por conta: `% restante` ou `% usado`;
 - daemon separado do applet, cache local e atualização periódica;
-- painel com os dois principais períodos de cada provedor;
+- painel com uma entrada por conta utilizável, mostrando o logo, as iniciais da
+  conta e os dois principais períodos;
 - popup com contas, planos, e-mails, janelas e horários de reset;
 - contas sem limites de assinatura são marcadas como `unsupported` e não aparecem
   no popup operacional.
