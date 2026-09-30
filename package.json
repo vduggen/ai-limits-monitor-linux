@@ -1,5 +1,5 @@
 {
-  "name": "ai-limits-monitor-for-linux",
+  "name": "ai-limits-monitor-linux",
   "version": "0.1.0",
   "private": true,
   "description": "AI Limits Monitor for Linux: desktop usage monitor for Claude Code and Codex subscription limits.",

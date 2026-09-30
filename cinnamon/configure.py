@@ -30,6 +30,9 @@ SOURCE_TREE_CONFIG_PATH = (
     Path(__file__).resolve().parent.parent / "config" / "accounts.json"
 )
 HOME_INSTALL_CONFIG_PATH = (
+    Path.home() / "ai-limits-monitor-linux" / "config" / "accounts.json"
+)
+PREVIOUS_HOME_INSTALL_CONFIG_PATH = (
     Path.home() / "ai-limits-monitor" / "config" / "accounts.json"
 )
 LEGACY_HOME_INSTALL_CONFIG_PATH = (
@@ -47,6 +50,7 @@ def config_path():
         (
             SOURCE_TREE_CONFIG_PATH,
             HOME_INSTALL_CONFIG_PATH,
+            PREVIOUS_HOME_INSTALL_CONFIG_PATH,
             LEGACY_HOME_INSTALL_CONFIG_PATH,
             OLDER_HOME_INSTALL_CONFIG_PATH,
         ),
