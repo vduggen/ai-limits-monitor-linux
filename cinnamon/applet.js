@@ -77,6 +77,13 @@ function displayModeLabel(mode) {
     return mode === "used" ? "% usado" : "% restante";
 }
 
+function accountInitials(account) {
+    const source = String(account.label || account.id || "").trim();
+    const words = source.split(/[\s_-]+/).filter(Boolean);
+    const initials = words.map((word) => Array.from(word)[0]).join("").toUpperCase();
+    return initials.slice(0, 3) || "??";
+}
+
 function windowPriority(kind) {
     return {
         session: 0,
@@ -226,6 +233,7 @@ class AiLimitsApplet extends Applet.Applet {
         this.content.set_style("spacing: 8px;");
         this.actor.add(this.content);
         this.providers = {};
+        this.panelEntries = [];
         this.addProvider("claude", metadata.path || ".", "claude.svg");
         this.addProvider("codex", metadata.path || ".", "codex.svg");
 
@@ -247,42 +255,73 @@ class AiLimitsApplet extends Applet.Applet {
     }
 
     addProvider(provider, directory, filename) {
-        const group = new St.BoxLayout({
-            style_class: "ai-limits-provider",
-            reactive: false,
-            vertical: false,
-        });
-        group.set_style("spacing: 5px; padding-top: 2px; padding-bottom: 2px;");
+        this.providers[provider] = {
+            iconPath: GLib.build_filenamev([directory, filename]),
+        };
+    }
 
-        const icon = new St.Icon({
-            gicon: new Gio.FileIcon({
-                file: Gio.file_new_for_path(GLib.build_filenamev([directory, filename])),
-            }),
-            icon_type: St.IconType.FULLCOLOR,
-            icon_size: 18,
-            style_class: "ai-limits-provider-icon",
-            x_align: St.Align.MIDDLE,
-            y_align: St.Align.MIDDLE,
-        });
-        const label = new St.Label({
-            text: "--%",
-            style_class: "applet-label",
-            reactive: false,
-            x_align: St.Align.MIDDLE,
-            y_align: St.Align.END,
-        });
+    renderPanel(accounts) {
+        this.content.remove_all_children();
+        this.panelEntries = [];
 
-        group.add(icon);
-        group.add(label);
-        this.content.add(group);
-        this.providers[provider] = { icon, label };
+        const providers = ["claude", "codex"];
+        for (const provider of providers) {
+            const providerAccounts = Array.isArray(accounts)
+                ? accounts.filter((account) =>
+                    account.provider === provider
+                    && account.status === "ok"
+                    && Array.isArray(account.windows)
+                    && account.windows.length > 0)
+                : [null];
+
+            for (const account of providerAccounts) {
+                const indicators = account
+                    ? providerIndicators([account], provider)
+                    : [];
+                const group = new St.BoxLayout({
+                    style_class: "ai-limits-provider",
+                    reactive: false,
+                    vertical: false,
+                });
+                group.set_style("spacing: 4px; padding-top: 2px; padding-bottom: 2px;");
+
+                const icon = new St.Icon({
+                    gicon: new Gio.FileIcon({
+                        file: Gio.file_new_for_path(this.providers[provider].iconPath),
+                    }),
+                    icon_type: St.IconType.FULLCOLOR,
+                    icon_size: 18,
+                    style_class: "ai-limits-provider-icon",
+                    x_align: St.Align.MIDDLE,
+                    y_align: St.Align.MIDDLE,
+                });
+                const values = indicators.map((indicator) => `${indicator.value}%`).join(" · ");
+                const label = new St.Label({
+                    text: account
+                        ? `${accountInitials(account)} ${values || "--%"}`
+                        : "--%",
+                    style_class: "applet-label",
+                    reactive: false,
+                    x_align: St.Align.MIDDLE,
+                    y_align: St.Align.END,
+                });
+
+                if (account) group.set_tooltip_text(account.label);
+                group.add(icon);
+                group.add(label);
+                this.content.add(group);
+                this.panelEntries.push({ icon, account, indicators });
+            }
+        }
+
+        this.updateIconSize();
     }
 
     updateIconSize() {
         const panelSize = this.getPanelIconSize(St.IconType.FULLCOLOR) || 18;
         const size = Math.max(12, Math.min(20, panelSize - 4));
-        for (const provider of Object.values(this.providers)) {
-            provider.icon.set_icon_size(size);
+        for (const entry of this.panelEntries) {
+            entry.icon.set_icon_size(size);
         }
     }
 
@@ -294,30 +333,29 @@ class AiLimitsApplet extends Applet.Applet {
         this.updateIconSize();
     }
 
-    setProviderValue(provider, value) {
-        const entry = this.providers[provider];
-        entry.label.set_text(value === null || value.length === 0
-            ? "--%"
-            : value.map((indicator) => `${indicator.value}%`).join(" · "));
-    }
-
     refresh() {
         const snapshot = readSnapshot();
         if (!snapshot || !Array.isArray(snapshot.accounts)) {
-            this.setProviderValue("claude", null);
-            this.setProviderValue("codex", null);
+            this.renderPanel(null);
             this.set_applet_tooltip("Linux Mint AI Limits Applet: execute o daemon para atualizar");
             return;
         }
 
-        const claude = providerIndicators(snapshot.accounts, "claude");
-        const codex = providerIndicators(snapshot.accounts, "codex");
-        this.setProviderValue("claude", claude);
-        this.setProviderValue("codex", codex);
-        const indicatorText = (name, indicators) => indicators.length === 0
-            ? `${name}: --`
-            : `${name}: ${indicators.map((indicator) => `${indicator.value}% ${displayModeLabel(indicator.mode)}`).join(" · ")}`;
-        this.set_applet_tooltip(`${indicatorText("Claude", claude)} · ${indicatorText("Codex", codex)}`);
+        this.renderPanel(snapshot.accounts);
+        const indicatorText = (name, provider) => {
+            const accounts = snapshot.accounts.filter((account) =>
+                account.provider === provider
+                && account.status === "ok"
+                && Array.isArray(account.windows)
+                && account.windows.length > 0);
+            if (accounts.length === 0) return `${name}: --`;
+            return `${name}: ${accounts.map((account) => {
+                const indicators = providerIndicators([account], provider);
+                const values = indicators.map((indicator) => `${indicator.value}% ${displayModeLabel(indicator.mode)}`);
+                return `${accountInitials(account)} ${values.join(" · ")}`;
+            }).join(", ")}`;
+        };
+        this.set_applet_tooltip(`${indicatorText("Claude", "claude")} · ${indicatorText("Codex", "codex")}`);
         this.snapshot = snapshot;
     }
 
