@@ -21,3 +21,7 @@ test("GNOME menu launches the installed GTK editor asynchronously", () => {
   assert.match(extensionSource, /wait_check_async\(/);
   assert.match(extensionSource, /Main\.notify\(/);
 });
+
+test("GNOME menu renders an explicit no-limits message for empty accounts", () => {
+  assert.match(extensionSource, /if \(account\.noLimits\)/);
+});

@@ -63,7 +63,13 @@ TARGET="$HOME/.local/share/gnome-shell/extensions/$UUID"
 mkdir -p "$TARGET"
 cp gnome/metadata.json gnome/extension.js gnome/snapshot.js "$TARGET/"
 cp cinnamon/configure.py cinnamon/config_paths.py "$TARGET/"
-gnome-extensions enable "$UUID"
+```
+
+Na primeira instalação, encerre e inicie novamente a sessão GNOME para que o
+Shell descubra a nova extensão. Depois habilite-a:
+
+```bash
+gnome-extensions enable ai-limits-monitor@vlduggen
 ```
 
 O indicador Claude/Codex aparece no painel. Clique nele para ver a idade do
@@ -71,10 +77,6 @@ snapshot, as contas suportadas, os períodos, percentuais e horários de reset.
 Snapshots antigos são marcados como **antigo** no painel e como desatualizados no
 menu. **Configurar…** abre o editor GTK 3 sem bloquear o GNOME Shell. A extensão
 só lê o cache; as consultas continuam sendo feitas pelo daemon.
-
-Se a extensão acabou de ser copiada e ainda não estiver disponível, encerre e
-entre novamente na sessão GNOME ou atualize a lista de extensões e então habilite
-o UUID acima.
 
 ## Atualizar
 

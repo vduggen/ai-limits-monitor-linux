@@ -112,6 +112,8 @@ export default class AiLimitsMonitorExtension extends Extension {
                         this._addMenuItem(account.metadata, 'opacity: 0.72; font-size: 0.9em;');
                     if (account.error)
                         this._addMenuItem(account.error, 'color: #d96b6b;');
+                    if (account.noLimits)
+                        this._addMenuItem(account.noLimits, 'opacity: 0.72;');
                     for (const window of account.windows)
                         this._addMenuItem(window.text);
                 });

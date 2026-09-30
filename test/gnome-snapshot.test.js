@@ -37,6 +37,7 @@ test("missingAndInvalidSnapshotsReturnExplicitStates", () => {
     state: "missing",
     createdAt: null,
     ageMs: null,
+    timestampInFuture: false,
     accounts: [],
     indicators: { claude: [], codex: [] },
   });
@@ -68,6 +69,9 @@ test("staleAndInvalidTimestampsAreClassifiedSafely", () => {
   );
   assert.equal(future.state, "ready");
   assert.equal(future.ageMs, 0);
+  assert.equal(future.timestampInFuture, true);
+  assert.match(buildMenuView(future, NOW).statusText, /no futuro/);
+  assert.match(buildPanelLabels(future).claude, /horário incerto/);
 });
 
 test("malformedAccountsAndStatusesAreHandledSafely", () => {
@@ -205,6 +209,16 @@ test("menuViewExplainsCacheStatesAndFiltersUnsupportedAccounts", () => {
   ), NOW);
   assert.equal(unsupportedOnly.groups.length, 0);
   assert.equal(unsupportedOnly.emptyText, "Nenhuma conta reportou limites utilizáveis.");
+});
+
+test("menuViewExplainsAccountsWithoutReportedLimits", () => {
+  const view = buildSnapshotView(
+    snapshotText([account({ id: "empty-account", windows: [] })]),
+    NOW,
+  );
+  const menu = buildMenuView(view, NOW);
+
+  assert.equal(menu.groups[0].accounts[0].noLimits, "Esta conta não reportou limites.");
 });
 
 test("panelLabelsMarkStaleValuesAsOld", () => {

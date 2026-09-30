@@ -2,6 +2,7 @@ const emptyView = (state) => ({
   state,
   createdAt: null,
   ageMs: null,
+  timestampInFuture: false,
   accounts: [],
   indicators: { claude: [], codex: [] },
 });
@@ -148,11 +149,13 @@ export function buildSnapshotView(text, nowMs = Date.now(), staleAfterMs = 120_0
   if (!Number.isFinite(timestamp)) return emptyView("invalid");
 
   const ageMs = Math.max(0, nowMs - timestamp);
+  const timestampInFuture = timestamp > nowMs;
   const accounts = snapshot.accounts.map(normalizeAccount).filter(Boolean);
   return {
     state: ageMs > staleAfterMs ? "stale" : "ready",
     createdAt: snapshot.createdAt,
     ageMs,
+    timestampInFuture,
     accounts,
     indicators: {
       claude: providerIndicators(accounts, "claude"),
@@ -220,9 +223,11 @@ export function buildMenuView(snapshotView, nowMs = Date.now()) {
   }
 
   const age = formatSnapshotAge(snapshotView.ageMs ?? Math.max(0, nowMs - Date.parse(snapshotView.createdAt)));
-  const statusText = snapshotView.state === "stale"
-    ? `Dados desatualizados — atualizado ${age}.`
-    : `Atualizado ${age}.`;
+  const statusText = snapshotView.timestampInFuture
+    ? "Timestamp do cache no futuro; dados não confirmados. Confira o relógio do sistema."
+    : snapshotView.state === "stale"
+      ? `Dados desatualizados — atualizado ${age}.`
+      : `Atualizado ${age}.`;
   const providerNames = [
     ["claude", "Claude"],
     ["codex", "Codex"],
@@ -256,6 +261,9 @@ export function buildMenuView(snapshotView, nowMs = Date.now()) {
           error: account.status === "error"
             ? account.error || "Não foi possível consultar esta conta."
             : null,
+          ...(account.status === "ok" && windows.length === 0
+            ? { noLimits: "Esta conta não reportou limites." }
+            : {}),
           windows,
         };
       }),
@@ -269,7 +277,11 @@ export function buildMenuView(snapshotView, nowMs = Date.now()) {
 }
 
 export function buildPanelLabels(snapshotView) {
-  const staleMarker = snapshotView.state === "stale" ? " (antigo)" : "";
+  const staleMarker = snapshotView.state === "stale"
+    ? " (antigo)"
+    : snapshotView.timestampInFuture
+      ? " (horário incerto)"
+      : "";
   return Object.fromEntries([
     ["claude", "Claude"],
     ["codex", "Codex"],
