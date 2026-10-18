@@ -180,8 +180,8 @@ export async function readCodexUsage(
       "initialize",
       {
         clientInfo: {
-          name: "linux_mint_ai_limits_applet",
-          title: "Linux Mint AI Limits Applet",
+          name: "ai_limits_monitor_for_linux",
+          title: "AI Limits Monitor for Linux",
           version: "0.1.0",
         },
         capabilities: { experimentalApi: true },

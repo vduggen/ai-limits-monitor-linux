@@ -4,7 +4,7 @@
         "pages": ["main"],
         "main": {
             "type": "page",
-            "title": "Linux Mint AI Limits Applet",
+            "title": "AI Limits Monitor for Linux",
             "sections": ["configuration", "behavior"]
         },
         "configuration": {

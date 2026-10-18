@@ -1,6 +1,6 @@
 # Especificação: suporte ao Ubuntu 24.04 LTS com GNOME
 
-**Status:** proposta aprovada em conversa; aguardando revisão deste documento.
+**Status:** especificação aprovada pelo usuário; implementação em andamento.
 **Data:** 2026-09-30
 
 ## Objetivo

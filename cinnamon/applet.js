@@ -336,7 +336,7 @@ class AiLimitsApplet extends Applet.Applet {
         const snapshot = readSnapshot();
         if (!snapshot || !Array.isArray(snapshot.accounts)) {
             this.renderPanel(null);
-            this.set_applet_tooltip("Linux Mint AI Limits Applet: execute o daemon para atualizar");
+            this.set_applet_tooltip("AI Limits Monitor for Linux: execute o daemon para atualizar");
             return;
         }
 
