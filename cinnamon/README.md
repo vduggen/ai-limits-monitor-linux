@@ -36,6 +36,10 @@ entradas no Cinnamon.
 
 ## Gerenciar contas
 
+Cada conta também possui modo de coleta e intervalo remoto. Os novos controles
+preservam as demais configurações. A ponte Claude é opt-in: revise o preview e
+confirme a instalação separadamente. Team pode não fornecer quota pela statusline.
+
 Use **Configurar…** no popup para abrir o gerenciador GTK. Ele detecta os perfis
 padrão `~/.claude` e `~/.codex` quando o CLI correspondente está disponível e
 permite escolher outras pastas de perfil existentes. Você pode editar rótulo e

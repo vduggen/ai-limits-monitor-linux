@@ -1,16 +1,18 @@
 #!/usr/bin/python3
 
 import copy
+import json
 import os
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Pango", "1.0")
-from gi.repository import Gtk, Pango
+from gi.repository import Gtk, Pango, GLib
 
 from account_config import (
     add_account,
@@ -20,6 +22,7 @@ from account_config import (
     remove_account,
     restart_user_service,
     save_config,
+    update_collection_settings,
 )
 from config_paths import resolve_config_path
 
@@ -235,6 +238,90 @@ class ConfigurationWindow(Gtk.Window):
         account_id = account["id"]
         label_entry.connect("changed", self._on_label_changed, account_id, frame)
         combo.connect("changed", self.on_mode_changed, account_id)
+        collection = Gtk.ComboBoxText()
+        for key, title in (("hybrid", "Híbrido"), ("local-only", "Somente local"), ("remote-only", "Somente consultas")):
+            collection.append(key, title)
+        collection.set_active_id(account.get("collectionMode", "hybrid"))
+        content.pack_start(collection, False, False, 0)
+        collection.connect("changed", lambda widget: account.update(collectionMode=widget.get_active_id()))
+        interval = Gtk.SpinButton.new_with_range(0, 86400, 1)
+        interval.set_value(account.get("remotePollIntervalSeconds", 0))
+        interval.set_tooltip_text("Intervalo remoto em segundos. 0 preserva o padrão ou intervalo legado.")
+        content.pack_start(interval, False, False, 0)
+        def interval_changed(widget):
+            value = widget.get_value_as_int()
+            if value:
+                account["remotePollIntervalSeconds"] = value
+            else:
+                account.pop("remotePollIntervalSeconds", None)
+        interval.connect("value-changed", interval_changed)
+        legacy = self._draft.get("pollIntervalSeconds")
+        hint = Gtk.Label(label=f"Intervalo legado: {legacy}s (preservado)." if legacy else "Padrão remoto: Claude 600s; Codex 120s.")
+        hint.set_xalign(0)
+        content.pack_start(hint, False, False, 0)
+        if legacy:
+            migrate = Gtk.Button.new_with_label("Usar intervalo recomendado nesta conta")
+            migrate.connect("clicked", lambda _button: interval.set_value(600 if provider == "claude" else 120))
+            content.pack_start(migrate, False, False, 0)
+        if provider == "claude":
+            warning = Gtk.Label(label="Coleta local depende de campos do CLI; Team pode exigir consulta remota.")
+            warning.set_line_wrap(True)
+            content.pack_start(warning, False, False, 0)
+            external = Gtk.Entry()
+            external.set_placeholder_text("Exportação claude-hud (opcional, caminho absoluto)")
+            external.set_text(account.get("externalUsagePath", ""))
+            external.connect("changed", lambda widget: account.update(externalUsagePath=widget.get_text()) if widget.get_text() else account.pop("externalUsagePath", None))
+            content.pack_start(external, False, False, 0)
+            actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            for action, title in (("preview", "Visualizar integração…"), ("install", "Habilitar…"), ("remove", "Remover integração…")):
+                button = Gtk.Button.new_with_label(title)
+                button.connect("clicked", lambda _button, kind=action, aid=account_id: self._integration(kind, aid))
+                actions.pack_start(button, False, False, 0)
+            content.pack_start(actions, False, False, 0)
+
+    def _integration(self, action, account_id):
+        if self._draft != self.config:
+            self.status.set_text("Salve primeiro as alterações de contas antes de gerenciar a integração.")
+            return
+        node = self.executable_lookup("node")
+        entrypoint = self.path.parent.parent / "dist" / "index.js"
+        if not node or not entrypoint.is_file():
+            self.status.set_text("CLI do monitor indisponível: compile o projeto e disponibilize Node no PATH.")
+            return
+        def run(kind, callback):
+            def worker():
+                try:
+                    result = subprocess.run([node, str(entrypoint), "integration", kind, "--account", account_id]
+                                            + (["--confirm"] if kind in ("install", "remove") else []),
+                                            env={**os.environ, "AI_LIMITS_CONFIG": str(self.path)},
+                                            capture_output=True, text=True, timeout=15)
+                    output = result.stdout if result.returncode == 0 else result.stderr
+                except (OSError, subprocess.SubprocessError) as error:
+                    output = str(error)
+                GLib.idle_add(callback, output)
+            threading.Thread(target=worker, daemon=True).start()
+        def confirm(output):
+            if action == "remove":
+                detail = "Remover somente a integração instalada pelo monitor? Alterações posteriores serão preservadas."
+            else:
+                try:
+                    preview = json.loads(output)
+                    detail = "\n".join(preview.get("warnings", [])) + "\n\nStatusline proposta:\n" + preview["proposed"]
+                except (ValueError, KeyError):
+                    self.status.set_text(output[:2000])
+                    return False
+            dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION,
+                                       buttons=Gtk.ButtonsType.OK_CANCEL, text="Integração Claude — " + action)
+            dialog.format_secondary_text(detail)
+            response = dialog.run()
+            dialog.destroy()
+            if response == Gtk.ResponseType.OK and action != "preview":
+                run(action, lambda message: self.status.set_text(message[:2000]) or False)
+            return False
+        if action == "remove":
+            confirm("")
+        else:
+            run("preview", confirm)
 
     def _on_label_changed(self, entry, account_id, frame):
         label = entry.get_text()

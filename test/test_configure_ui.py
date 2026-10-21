@@ -113,6 +113,7 @@ class ConfigurationWindowTests(unittest.TestCase):
         self.assertIn("Outra conta Claude…", buttons)
         self.assertIn("Outra conta Codex…", buttons)
         self.assertIn("Salvar", buttons)
+        self.assertIn("hybrid", display_modes)
 
     def test_addAndRemoveAccountChangesDraftUntilSave(self):
         codex_profile = self.home / ".codex"
@@ -142,7 +143,7 @@ class ConfigurationWindowTests(unittest.TestCase):
             for widget in descendants(window)
             if isinstance(widget, Gtk.Entry)
         ]
-        self.assertEqual(len(remaining_entries), 1)
+        self.assertEqual(sum(value in ("Codex pessoal", "Claude pessoal") for value in remaining_entries), 1)
         self.assertEqual(self.restart_calls, [])
         self.assertFalse(self.button_by_label(window, "Remover").get_sensitive())
 

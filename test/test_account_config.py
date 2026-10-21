@@ -15,6 +15,7 @@ from cinnamon.account_config import (
     restart_user_service,
     save_config,
     update_account,
+    update_collection_settings,
 )
 
 
@@ -65,6 +66,18 @@ class DefaultProfileDiscoveryTests(unittest.TestCase):
 
 
 class AccountConfigurationTests(unittest.TestCase):
+    def test_collectionSettingsPreserveUnknownFieldsAndRejectInvalidInput(self):
+        config = {"accounts": [{"id": "a", "label": "A", "provider": "claude", "configDir": "/profile", "other": 42}]}
+        changed = update_collection_settings(config, "a", collection_mode="local-only", remote_poll_interval_seconds=600, external_usage_path="/snapshot.json")
+        self.assertEqual(changed["accounts"][0]["other"], 42)
+        self.assertEqual(changed["accounts"][0]["collectionMode"], "local-only")
+        self.assertNotIn("collectionMode", config["accounts"][0])
+        for bad in (-1, 0, 0.5, True):
+            with self.assertRaises(ValueError):
+                update_collection_settings(config, "a", collection_mode="hybrid", remote_poll_interval_seconds=bad)
+        with self.assertRaises(ValueError):
+            update_collection_settings(config, "a", collection_mode="invalid", remote_poll_interval_seconds=None)
+
     def test_addAccountMapsProviderPathAndCreatesUniqueIds(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

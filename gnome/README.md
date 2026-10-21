@@ -93,6 +93,11 @@ serviço uma única vez. Nenhuma dessas ações exige logout/login.
 
 ## Atualizar
 
+O editor de contas permite escolher coleta híbrida, somente local ou somente
+consultas e definir intervalo remoto por conta. O intervalo legado explícito
+continua valendo até você optar pela migração. A integração Claude é habilitada
+separadamente, após preview e confirmação; Salvar contas não modifica a statusline.
+
 Na raiz do clone atualizado, copie novamente os arquivos para o mesmo diretório:
 
 ```bash
