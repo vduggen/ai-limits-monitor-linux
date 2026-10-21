@@ -135,6 +135,13 @@ Use `displayMode: "used"` para mostrar o percentual consumido ou
 
 ## Executar e instalar o serviço
 
+A integração local Claude (opt-in) recebe apenas os percentuais de quota da
+statusline e escreve snapshots privados por perfil/sessão. Ela não consulta a
+API, não lê tokens e preserva o JSON original para o comando anterior. O
+instalador exige preview e confirmação; não habilite sem revisar a compatibilidade
+do comando anterior com `/bin/sh`. A gravação local não confirma uma medição
+remota nova. Configurações de projeto podem substituir a integração de usuário.
+
 Para uma consulta única ou execução contínua:
 
 ```bash
