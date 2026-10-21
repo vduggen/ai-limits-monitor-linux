@@ -108,7 +108,7 @@ async function main(): Promise<void> {
       if (command === "check") return;
     }
     if (command === "watch") {
-      await new Promise((resolve) => setTimeout(resolve, config.pollIntervalSeconds * 1000));
+      await new Promise((resolve) => setTimeout(resolve, (config.pollIntervalSeconds ?? 60) * 1000));
     }
   } while (command === "watch");
 }

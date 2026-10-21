@@ -83,7 +83,7 @@ Adicionar a `UsageWindow` os metadados opcionais `source`, `observedAt`, `source
 
 ## Marco 1 — coleta e contrato confiáveis
 
-### Tarefa 1: Schema compatível e seleção temporal por janela
+### Task 1: Schema compatível e seleção temporal por janela
 
 **Files:** modificar `src/shared/types.ts`, `src/config.ts`; criar `src/collection/observations.ts`, `test/collection-observations.test.js`, `test/collection-config.test.js`.
 
@@ -95,7 +95,7 @@ Adicionar a `UsageWindow` os metadados opcionais `source`, `observedAt`, `source
 - [ ] **4. GREEN:** implementar tipos/normalização e merge imutável por `id` de janela, comparando timestamp do evento quando presente, senão observação; empate conserva anterior. Sem evento confiável, registrar apenas `observedAt`; não preencher `fetchedAt`. Repetição do mesmo evento é idempotente. `windowState` usa reset primeiro e 120.000 ms para último conhecido; dado legado é último conhecido/idade desconhecida. Separar intervalo legado opcional do default atual em `loadConfig`.
 - [ ] **5. Verificar e commit:** testes focados + verificação comum; commit `feat: track per-window quota provenance and collection policy`.
 
-### Tarefa 2: Entradas privadas, vínculo por perfil e runtime persistido
+### Task 2: Entradas privadas, vínculo por perfil e runtime persistido
 
 **Files:** criar `src/collection/private-files.ts`, `src/collection/identity.ts`, `src/collection/runtime-state.ts`, `test/collection-runtime.test.js`; adaptar `src/cache.ts`.
 
@@ -107,7 +107,7 @@ Adicionar a `UsageWindow` os metadados opcionais `source`, `observedAt`, `source
 - [ ] **4. GREEN:** criar diretórios `inputs/`, `requests/`, `integration/` sob a raiz do cache e arquivo `runtime-state.json`. Verificar handles abertos com no-follow/fstat e limites, gravar temporário exclusivo + rename; não chmod amplo de diretórios externos. Lock via mkdir exclusivo com dono UID/PID/início; recuperação não usa apenas timeout de mtime. Persistir somente dados de quota, vínculo e agenda; nunca tokens/transcript. Runtime inválido deixa fontes locais funcionando e aplica guarda inicial remota de 15 minutos com aviso diagnóstico até novo estado seguro.
 - [ ] **5. Verificar e commit:** testes focados + verificação comum; commit `feat: persist private collector state and profile bindings`.
 
-### Tarefa 3: Ponte Claude com passthrough e instalação reversível
+### Task 3: Ponte Claude com passthrough e instalação reversível
 
 **Files:** criar `src/collection/claude-statusline.ts`, `src/collection/claude-install.ts`, `src/statusline.ts`, `test/claude-statusline.test.js`, `test/claude-install.test.js`; documentar contrato da ponte em `README.md`.
 
@@ -120,7 +120,7 @@ Adicionar a `UsageWindow` os metadados opcionais `source`, `observedAt`, `source
 - [ ] **5. GREEN:** ponte lê stdin até 1 MiB, minimiza campos e grava `inputs/<binding-generation>/<session-hash>.json` em modo privado. IDs sem fonte explícita usam namespace de processo/sessão local, não dados de prompts. Passar JSON original via stdin ao shell original sem interpolar payload; usar shell do CLI em Linux quando conhecido, senão recusar comando dependente de shell não suportado. Fail-open na exportação; saída anterior é única saída. Installer guarda manifesto de binding/settings/executável e digest original/proposto no diretório `integration/`; não executar instalação contra perfis reais nos testes. Cli `src/statusline.ts` recebe caminho do manifesto, nunca tokens.
 - [ ] **6. Verificar e commit:** testes focados + verificação comum; commit `feat: collect Claude quota through an opt-in statusline bridge`.
 
-### Tarefa 4: Leitor incremental Codex e watch local
+### Task 4: Leitor incremental Codex e watch local
 
 **Files:** criar `src/collection/codex-rollouts.ts`, `src/collection/local-sources.ts`, `test/codex-rollouts.test.js`, `test/local-sources.test.js`, fixtures em `test/fixtures/local-quota/`.
 
@@ -133,7 +133,7 @@ Adicionar a `UsageWindow` os metadados opcionais `source`, `observedAt`, `source
 - [ ] **5. GREEN:** watch de diretórios + rescan local a cada 2 s, sem rede; para Codex varrer datas de hoje/ontem em UTC e arquivos ativos, máximo 64 arquivos por perfil, tail inicial de 1 MiB por arquivo; ler prefixo limitado apenas para metadados. Em descoberta, quota histórica anterior ao binding não é atual. Logs fora desses limites resultam em diagnóstico/fallback, não varredura total. Reter offsets apenas em memória; restart reavalia bounded tails preservando timestamps. Claude watcher deduplica por conteúdo/revisão de origem, não mtime isolado. `observedAt` do primeiro consumo não muda em releitura.
 - [ ] **6. Verificar e commit:** testes focados + verificação comum; commit `feat: watch local Claude snapshots and Codex quota events`.
 
-### Tarefa 5: Probes remotos tipados e agenda central
+### Task 5: Probes remotos tipados e agenda central
 
 **Files:** criar `src/collection/remote.ts`, `src/collection/coordinator.ts`, `test/collection-coordinator.test.js`, `test/codex-provider.behavior.test.js`; modificar `src/providers/claude.ts`, `src/providers/codex.ts`, testes de recuperação existentes.
 
@@ -147,7 +147,7 @@ Adicionar a `UsageWindow` os metadados opcionais `source`, `observedAt`, `source
 - [ ] **6. GREEN:** mover autoridade de cooldown do map privado Claude para coordenador; manter wrappers legados de leitura que retornam `AccountUsage` para compatibilidade dos testes/consumidores. Probe Claude continua drenando stderr antes de classificar cache/429 e fornece retry tipado sem reparse da mensagem localizada. `fetchedAt` Claude só com evidência de fetch de sucesso nos diagnósticos; ausência fica desconhecida. Probe Codex usa timeout configurado e params suportados. Estado é atualizado/publicado por fila curta, sem esperar rede; merge por janela e geração da tarefa 1. `refresh` retorna resultados por conta, sem confundir observação recebida com consulta remota provadamente nova.
 - [ ] **7. Verificar e commit:** testes focados + verificação comum; commit `feat: coordinate local-first quota collection and persistent retry policy`.
 
-### Tarefa 6: Runtime único, CLI e pedidos manuais
+### Task 6: Runtime único, CLI e pedidos manuais
 
 **Files:** criar `src/collection/refresh-requests.ts`, `src/collection/daemon.ts`, `test/collection-daemon.test.js`, `test/refresh-requests.test.js`; modificar `src/index.ts`, `src/cache.ts`.
 
@@ -160,7 +160,7 @@ Adicionar a `UsageWindow` os metadados opcionais `source`, `observedAt`, `source
 - [ ] **5. GREEN:** `watch` usa daemon; CLI `refresh [--json]` envia pedido e aguarda resultado até 60 s. `check` com daemon ativo segue o mesmo caminho; sem daemon obtém lock, carrega runtime, faz uma rodada respeitando deadline e publica/persiste antes de soltar. `check --provider` faz merge das contas não consultadas no snapshot, não as apaga. Guardar resultado individual por ID evita disputa entre UI e CLI. `watch` recarrega configuração por watch + rescan local. Publicar em no máximo 250 ms após observação aceita. Rotear preview/install/remove da tarefa 3 como subcomandos `integration preview|install|remove --account <id>`; install exige confirmação explícita, caminhos absolutos com espaços funcionam.
 - [ ] **6. Verificar e commit:** testes focados + verificação comum; commit `feat: run a single collector with coordinated refresh requests`.
 
-### Tarefa 7: Contrato visual e compatibilidade Cinnamon
+### Task 7: Contrato visual e compatibilidade Cinnamon
 
 **Files:** modificar `gnome/snapshot.js`, `cinnamon/applet.js`, `test/gnome-snapshot.test.js`; criar `test/cinnamon-applet.behavior.test.js`.
 
@@ -174,7 +174,7 @@ Adicionar a `UsageWindow` os metadados opcionais `source`, `observedAt`, `source
 
 ## Marco 2 — GNOME e controles de integração
 
-### Tarefa 8: GTK3, modos de coleta e gestão opt-in
+### Task 8: GTK3, modos de coleta e gestão opt-in
 
 **Files:** modificar `cinnamon/account_config.py`, `cinnamon/configure.py`, `test/test_account_config.py`, `test/test_configure_ui.py`; atualizar instruções GNOME/Cinnamon.
 
@@ -186,7 +186,7 @@ Adicionar a `UsageWindow` os metadados opcionais `source`, `observedAt`, `source
 - [ ] **4. GREEN:** controles por conta com rótulos “Híbrido”, “Somente local”, “Somente consultas”; segundos validados e opção usar default/legado. Botões “Visualizar integração…”, “Habilitar…” e “Remover…” usam CLI assíncrono/limitado e preview de diferenças; não executar shell construído com labels. Paths configurados não são comandos. Testar com runners injetados e settings temporárias, nunca no perfil real.
 - [ ] **5. Verificar e commit:** verificação comum; commit `feat: configure collection modes and reversible Claude integration`.
 
-### Tarefa 9: Dashboard GNOME e refresh sem restart
+### Task 9: Dashboard GNOME e refresh sem restart
 
 **Files:** criar `gnome/dashboard.js`, `gnome/refresh-request.js`, `gnome/stylesheet.css`, `test/gnome-dashboard.behavior.test.js`; modificar `gnome/extension.js`, `test/gnome-extension.behavior.test.js`, `test/gnome-extension.test.js`, scripts de instalação/checagem nos READMEs e `package.json`.
 
@@ -199,7 +199,7 @@ Adicionar a `UsageWindow` os metadados opcionais `source`, `observedAt`, `source
 - [ ] **5. GREEN:** cartões nativos St.BoxLayout + PopupBaseMenuItem não interativo e barras desenhadas com CSS/alocação, não controles ajustáveis; acessibilidade textual completa. Usar scroll do menu nativo e largura alvo 360 px limitada à workarea/escala. Tema claro/escuro herda cores e usa classes normal/warning/critical, texto além de cor. Tooltip dos itens do painel implementado e destruído no lifecycle. Reconciliar por ID; contador local não removeAll. Watch de cache150ms preservado com fallback30s; timer15s só atualiza texto de tempo. Pedido com Gio async, arquivo privado/atômico e resultado correlacionado; manter launch GTK3 existente. Estender `check:gnome` e cópias manuais com módulos/CSS novos.
 - [ ] **6. Verificar e commit:** verificação comum + `npm run check:gnome`; commit `feat: add native GNOME quota cards and coordinated refresh`.
 
-### Tarefa 10: Integração, documentação e implantação controlada
+### Task 10: Integração, documentação e implantação controlada
 
 **Files:** criar `test/local-first.integration.test.js`, `docs/local-first-monitoring.md`; atualizar `README.md`, `gnome/README.md`, `cinnamon/README.md`, `test/compatibility.test.js` e checklists da spec/plano.
 
