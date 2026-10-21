@@ -12,3 +12,9 @@ test('Codex reads may take more than 3 seconds within configured timeout and omi
   const usage = await readCodexUsage({ id: 'a', label: 'A', provider: 'codex', binaryPath: bin, homeDir: dir }, 5);
   assert.equal(usage.status, 'ok'); assert.equal(usage.windows[0].usedPercent, 37);
 });
+
+test('Claude provider carries only non-secret identity evidence into quota results', async () => {
+  const {parseClaudeUsage}=await import('../src/providers/claude.ts');
+  const usage=parseClaudeUsage({id:'a',label:'A',provider:'claude'}, {account:{email:'person@example.test'}}, {rate_limits_available:true,rate_limits:{five_hour:{utilization:37}}},new Date().toISOString());
+  assert.equal(usage.identityId,'email:person@example.test');
+});

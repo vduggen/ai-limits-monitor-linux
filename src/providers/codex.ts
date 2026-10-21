@@ -162,6 +162,7 @@ function parseUsage(
     displayMode: displayModeForAccount(account),
     plan: snapshot.planType ?? accountInfo?.planType,
     email: accountInfo?.email,
+    identityId: response.accountId ?? (accountInfo?.email ? `email:${accountInfo.email.toLowerCase()}` : undefined),
     windows,
     checkedAt,
   };

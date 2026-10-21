@@ -46,6 +46,7 @@ export interface UsageWindow {
 export type UsageStatus = "ok" | "unsupported" | "error";
 
 export interface AccountUsage {
+  readonly identityId?: string;
   readonly id: string;
   readonly label: string;
   readonly provider: ProviderName;

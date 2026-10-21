@@ -1,5 +1,6 @@
 import path from "node:path";
-import { readdir, stat, unlink, lstat } from "node:fs/promises";
+import { opendir, stat, unlink, lstat } from "node:fs/promises";
+import type { Dir } from "node:fs";
 import { ensurePrivateDirectory, readPrivateJson, writePrivateJson } from "./private-files.js";
 import type { RefreshRequest, RefreshResult } from "../shared/types.js";
 
@@ -27,8 +28,13 @@ export async function waitRefreshResult(root: string, id: string, timeoutMs = 60
 export async function watchRefreshRequests(root: string, handle: (request: RefreshRequest) => Promise<RefreshResult>): Promise<{ close(): Promise<void> }> {
   const dir = path.join(root, "requests"); await ensurePrivateDirectory(dir);
   let running: Promise<void> | undefined; let closed = false;
+  let cursor: Dir | undefined;
   const scan = async () => {
-    for (const file of (await readdir(dir)).slice(0, 256)) {
+    cursor ??= await opendir(dir);
+    for (let count = 0; count < 256; count++) {
+      const entry = await cursor.read();
+      if (!entry) { await cursor.close(); cursor = undefined; break; }
+      const file = entry.name;
       const target = path.join(dir, file);
       const info = await lstat(target).catch(() => null);
       if (!info?.isFile() || info.uid !== process.getuid?.()) continue;
@@ -47,5 +53,5 @@ export async function watchRefreshRequests(root: string, handle: (request: Refre
   };
   const tick = () => { if (!closed && !running) { running = scan().catch(() => {}).finally(() => { running = undefined; }); } };
   const timer = setInterval(tick, 100); tick();
-  return { async close() { closed = true; clearInterval(timer); await running; } };
+  return { async close() { closed = true; clearInterval(timer); await running; await cursor?.close(); cursor = undefined; } };
 }

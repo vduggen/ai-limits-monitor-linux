@@ -39,13 +39,16 @@ export async function runDaemon(configFile: string, cacheFile: string, signal: A
     const publish = async (states: readonly AccountCollectionState[]) => {
       await saveRuntimeState(root, states); await writeSnapshot(cacheFile, toSnapshot(states, config, configFile, result));
     };
-    coordinator = createCoordinator({ accounts: config.accounts, config, initial, probe: probeRemote, now: Date.now, random: Math.random, publish });
+    const onError = () => console.error('Falha ao publicar estado do coletor; próxima gravação será tentada normalmente.');
+    coordinator = createCoordinator({ accounts: config.accounts, config, initial, probe: probeRemote, now: Date.now, random: Math.random, publish, onError });
     if (corrupt) {
       const guarded = coordinator.states().map(s => ({ ...s, nextRetryAt: new Date(Date.now() + 900000).toISOString(), error: "Estado anterior inválido; aguardando 15 minutos antes de consultar." }));
-      coordinator = createCoordinator({ accounts: config.accounts, config, initial: guarded, probe: probeRemote, now: Date.now, random: Math.random, publish });
+      coordinator = createCoordinator({ accounts: config.accounts, config, initial: guarded, probe: probeRemote, now: Date.now, random: Math.random, publish, onError });
     }
     const startSources = () => watchLocalSources(config.accounts, coordinator!.states().map(s => s.binding), root, o => coordinator!.observe(o), () => {});
     sources = await startSources(); await publish(coordinator.states());
+    const bindingKey = () => JSON.stringify(coordinator!.states().map(s => s.binding));
+    let sourceKey = bindingKey();
     if (options.once) {
       await coordinator.refresh({ version: 1, id: "one-shot", createdAt: new Date().toISOString(), accountIds: options.accountIds });
       return;
@@ -54,21 +57,25 @@ export async function runDaemon(configFile: string, cacheFile: string, signal: A
       await sources!.rescan(); result = await coordinator!.refresh(request); await publish(coordinator!.states()); return result;
     });
     const tick = async () => {
+      if (sourceKey !== bindingKey()) {
+        await sources!.close(); sources = await startSources(); sourceKey = bindingKey();
+      }
       try {
         const next = await readFile(configFile, "utf8");
         if (next !== configText) {
           const updated = await loadConfig(configFile); await sources!.close(); config = updated; configText = next;
-          coordinator!.reconfigure(config.accounts, config); sources = await startSources(); await publish(coordinator!.states());
+          coordinator!.reconfigure(config.accounts, config); sources = await startSources(); sourceKey = bindingKey(); await publish(coordinator!.states());
         }
       } catch { /* Keep the last valid configuration. */ }
       await coordinator!.tick();
     };
-    const schedule = () => { if (!signal.aborted && !ticking) ticking = tick().finally(() => { ticking = undefined; }); };
+    const schedule = () => { if (!signal.aborted && !ticking) ticking = tick().catch(onError).finally(() => { ticking = undefined; }); };
     timer = setInterval(schedule, 1000); schedule();
     await new Promise<void>(resolve => { if (signal.aborted) resolve(); else signal.addEventListener("abort", () => resolve(), { once: true }); });
   } finally {
     if (timer) clearInterval(timer);
-    await requests?.close(); await sources?.close(); await coordinator?.close(); await ticking;
-    await lock.release();
+    try {
+      await requests?.close(); await ticking; await sources?.close(); await coordinator?.close();
+    } finally { await lock.release(); }
   }
 }

@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { St, PopupMenu, Widget, textTree } from './gnome-widgets.js';
-import { buildMenuView, buildSnapshotView, formatReset, formatSnapshotAge } from '../gnome/snapshot.js';
+import { buildMenuView, buildSnapshotView, formatReset, formatSnapshotAge, windowObservationState } from '../gnome/snapshot.js';
 const source = await readFile(new URL('../gnome/dashboard.js', import.meta.url), 'utf8');
-const { Dashboard, AccountCard } = new Function('St', 'PopupMenu', 'formatReset', 'formatSnapshotAge', `${source.replace(/^import .*;\n/gm, '').replaceAll('export class ', 'class ')}; return {Dashboard, AccountCard};`)(St, PopupMenu, formatReset, formatSnapshotAge);
+const { Dashboard, AccountCard } = new Function('St', 'PopupMenu', 'formatReset', 'formatSnapshotAge', 'windowObservationState', `${source.replace(/^import .*;\n/gm, '').replaceAll('export class ', 'class ')}; return {Dashboard, AccountCard};`)(St, PopupMenu, formatReset, formatSnapshotAge, windowObservationState);
 const now = Date.parse('2026-10-21T12:00:00Z');
 const account = { id: 'a', label: 'Claude pessoal', provider: 'claude', status: 'error', error: '429', displayMode: 'remaining',
   collection: { nextRetryAt: '2026-10-21T12:15:00Z', identityConfidence: 'profile' }, windows: [
@@ -41,4 +41,11 @@ test('dashboard reconciles by identity without replacing focused footer, scroll 
   assert.equal(dashboard.cards.get('a'), first); assert.equal(dashboard.cards.size, 2);
   dashboard.update(view([{...account, id: 'b'}])); assert.equal(first.actor.destroyed, true);
   dashboard.destroy(); assert.equal(dashboard.cards.size, 0);
+});
+
+test('future timestamps never become an observed-current label during countdown updates', () => {
+  const a={...account,windows:[{...account.windows[0],observedAt:'2026-10-22T12:00:00Z'}]};
+  const card=new AccountCard(view([a]).groups[0].accounts[0],()=>now);
+  assert.match(card.windows.get('s').time.text,/Último conhecido/);
+  card.updateTime(now+15000);assert.match(card.windows.get('s').time.text,/Último conhecido/);card.destroy();
 });

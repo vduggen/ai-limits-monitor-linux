@@ -220,5 +220,19 @@ Adicionar a `UsageWindow` os metadados opcionais `source`, `observedAt`, `source
 - [x] Interfaces compartilhadas usam os mesmos tipos e campos; parser GJS não importa runtime Node.
 - [x] Dois marcos dependentes, com Cinnamon adaptado antes de disponibilizar dados retidos.
 - [x] Plano não altera credenciais nem configurações reais; implantação exige autorizações específicas.
-- [ ] Usuário revisar o plano e selecionar execução nativa ou dirigida por subagentes.
+- [x] Usuário revisar o plano e selecionar execução nativa ou dirigida por subagentes (nativa).
 - [ ] Execução e validação.
+
+### Estado de entrega (2026-10-21)
+
+- [x] Tarefas 1–9 implementadas em commits isolados com testes por tarefa.
+- [x] Tarefa 10: integração sintética e documentação; 69 testes JS, 23 Python,
+  TypeScript, build e sintaxe GNOME/Cinnamon verificados.
+- [x] Revisão independente da branch; nove achados importantes e um achado de
+  frescor reclassificado corrigidos com regressões RED→GREEN. Verificação final:
+  80 testes JS e 24 Python, TypeScript, build e sintaxe GNOME/Cinnamon.
+- [ ] Smoke tests em sessão GNOME 46/Cinnamon (não autorizados nesta execução).
+- [ ] Instalação, ponte real e migração do intervalo (autorizações separadas).
+
+O usuário autorizou instalação de teste neste computador, com backup, após a
+revisão/correções. Ponte real e alteração dos 60 segundos continuam não autorizadas.

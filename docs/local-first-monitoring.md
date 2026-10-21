@@ -50,11 +50,14 @@ no **mesmo checkout e ambiente** usados pelo serviço (`AI_LIMITS_CONFIG` e
 
 ```bash
 node dist/index.js integration preview --account claude-pessoal
-node dist/index.js integration install --account claude-pessoal --confirm
+node dist/index.js integration install --account claude-pessoal --confirm --preview ID_RETORNADO_PELO_PREVIEW
 node dist/index.js integration remove --account claude-pessoal --confirm
 ```
 
-Revise o preview antes de instalar. A ponte preserva o objeto de statusline e
+Revise o preview antes de instalar e use seu `previewId` na confirmação (válido
+por 5 minutos). Mudanças de configuração/perfil ou settings exigem novo preview.
+O daemon precisa ter inicializado o vínculo dessa conta antes da integração.
+A ponte preserva o objeto de statusline e
 encaminha os bytes de entrada ao comando anterior, com stdout/stderr intactos,
 sob `/bin/sh` e timeout de 2 segundos. Comandos dependentes de outro shell devem
 ser adaptados conscientemente. Configuração de projeto pode substituir a
@@ -84,6 +87,12 @@ verificada aparecem como **perfil; identidade não confirmada**, sem e-mail
 herdado. Não some percentuais entre sessões. Mantenha perfis separados para
 logins diferentes; mudanças de pasta criam uma geração nova. Um evento local não
 garante refletir uso feito fora do CLI, em outro computador ou em outra sessão.
+
+Evidência não secreta de identidade nas consultas remotas invalida os dados
+retidos quando o login muda no mesmo perfil. Antes dessa evidência, as fontes
+locais continuam incertas; não há leitura de tokens para detectar troca de login.
+Uma ponte vinculada à geração anterior deixa de ser aceita após a troca: remova
+e habilite novamente a integração, com preview, para o novo login.
 
 HTTP 429 preserva o último dado útil com aviso. A espera é o maior prazo entre
 o informado pelo CLI e 15/30/60 minutos progressivos, mais até 10% de jitter

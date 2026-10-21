@@ -26,10 +26,19 @@ export async function previewClaudeIntegration(settingsPath: string, binding: Pr
 export async function installClaudeIntegration(preview: Preview): Promise<void> {
   const file = integrationManifestPath(preview.settingsPath, preview.root);
   const current = await text(preview.settingsPath);
-  if (current === `${preview.proposed}\n` || current === preview.proposed) return;
   if (current !== preview.original) throw new Error("Configuração alterada após preview; refaça a confirmação.");
   const old = preview.original === null ? {} : JSON.parse(preview.original);
-  const manifest: Manifest = { ...preview, previousCommand: old.statusLine?.command };
+  let previous: Manifest | undefined;
+  try { previous = await readPrivateJson(file, preview.root, 1_048_576) as Manifest; } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  if (previous && (previous.binding.generation !== preview.binding.generation
+    || JSON.stringify(old.statusLine) !== JSON.stringify(JSON.parse(previous.proposed).statusLine))) {
+    throw new Error('Integração ou perfil alterado; remova a integração anterior antes de reinstalar.');
+  }
+  if (!previous && old.statusLine?.command?.includes(quote(file))) throw new Error('Ponte sem manifesto original; reinstalação recusada.');
+  const manifest: Manifest = { ...preview, original: previous ? previous.original : preview.original,
+    previousCommand: previous ? previous.previousCommand : old.statusLine?.command };
   await writePrivateJson(file, manifest);
   await writePrivateJson(preview.settingsPath, JSON.parse(preview.proposed));
 }

@@ -5,13 +5,15 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import time
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk
+from gi.repository import Gtk, GLib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cinnamon"))
 from cinnamon import configure
@@ -26,6 +28,30 @@ def descendants(widget):
 
 
 class ConfigurationWindowTests(unittest.TestCase):
+    def test_installCarriesTheExactPreviewApprovedInTheDialog(self):
+        config = {"accounts": [self.account_config("claude", "a", "Claude", self.home / ".claude")]}
+        self.write_config(config)
+        dist = self.root / "dist"
+        dist.mkdir()
+        (dist / "index.js").write_text("", encoding="utf-8")
+        window = self.make_window(config, executable_lookup=lambda name: "/usr/bin/node")
+        calls = []
+        def run(command, **kwargs):
+            calls.append(command)
+            if "preview" in command:
+                return SimpleNamespace(returncode=0, stdout=json.dumps({"previewId": "approved-token", "proposed": "approved-settings", "warnings": []}), stderr="")
+            return SimpleNamespace(returncode=0, stdout="installed", stderr="")
+        with patch.object(configure.subprocess, "run", side_effect=run), patch.object(Gtk.MessageDialog, "run", return_value=Gtk.ResponseType.OK):
+            window._integration("install", "a")
+            deadline = time.monotonic() + 2
+            while len(calls) < 2 and time.monotonic() < deadline:
+                GLib.MainContext.default().iteration(False)
+                time.sleep(0.01)
+        self.assertEqual(len(calls), 2)
+        install = calls[1]
+        self.assertIn("--preview", install)
+        self.assertEqual(install[install.index("--preview") + 1], "approved-token")
+
     def setUp(self):
         Gtk.init_check([])
         self.temporary_directory = tempfile.TemporaryDirectory()

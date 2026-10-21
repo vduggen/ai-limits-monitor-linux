@@ -288,11 +288,12 @@ class ConfigurationWindow(Gtk.Window):
         if not node or not entrypoint.is_file():
             self.status.set_text("CLI do monitor indisponível: compile o projeto e disponibilize Node no PATH.")
             return
-        def run(kind, callback):
+        def run(kind, callback, preview_id=None):
             def worker():
                 try:
                     result = subprocess.run([node, str(entrypoint), "integration", kind, "--account", account_id]
-                                            + (["--confirm"] if kind in ("install", "remove") else []),
+                                            + (["--confirm"] if kind in ("install", "remove") else [])
+                                            + (["--preview", preview_id] if kind == "install" else []),
                                             env={**os.environ, "AI_LIMITS_CONFIG": str(self.path)},
                                             capture_output=True, text=True, timeout=15)
                     output = result.stdout if result.returncode == 0 else result.stderr
@@ -316,7 +317,8 @@ class ConfigurationWindow(Gtk.Window):
             response = dialog.run()
             dialog.destroy()
             if response == Gtk.ResponseType.OK and action != "preview":
-                run(action, lambda message: self.status.set_text(message[:2000]) or False)
+                run(action, lambda message: self.status.set_text(message[:2000]) or False,
+                    preview["previewId"] if action == "install" else None)
             return False
         if action == "remove":
             confirm("")

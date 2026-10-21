@@ -10,6 +10,8 @@ async function processStart(pid: number): Promise<string> {
   return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
 }
 
+export class CollectorBusyError extends Error {}
+
 export async function acquireCollectorLock(root: string): Promise<{ release(): Promise<void> }> {
   await ensurePrivateDirectory(root);
   const directory = path.join(root, "collector.lock");
@@ -21,7 +23,7 @@ export async function acquireCollectorLock(root: string): Promise<{ release(): P
     try { dead = (await processStart(owner.pid)) !== owner.start; } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") dead = true; else throw e;
     }
-    if (!dead) throw new Error("Outro coletor está ativo (lock).");
+    if (!dead) throw new CollectorBusyError("Outro coletor está ativo (lock).");
     // Move only the directory inspected, then compete for the new lock normally.
     const reclaim = path.join(root, "collector.reclaim");
     await mkdir(reclaim, { mode: 0o700 });

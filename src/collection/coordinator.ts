@@ -8,16 +8,23 @@ export function createCoordinator(options: {
   accounts: readonly AccountConfig[]; config: AppConfig; initial: readonly AccountCollectionState[];
   probe: typeof probeRemote; now: () => number; random: () => number;
   publish: (states: readonly AccountCollectionState[]) => Promise<void>;
+  onError?: (error: unknown) => void;
 }) {
   let accounts = options.accounts; let config = options.config; let closed = false;
   const values = new Map<string, AccountCollectionState>();
   const running = new Map<string, Promise<RefreshResult["accounts"][number]>>();
   let publishing = Promise.resolve();
-  const publish = () => { const snapshot = [...values.values()]; publishing = publishing.then(() => options.publish(snapshot)); return publishing; };
+  const publish = () => {
+    const snapshot = [...values.values()];
+    const work = publishing.then(() => options.publish(snapshot));
+    // Each caller sees its own failure, but the queue remains usable afterward.
+    publishing = work.catch(error => { options.onError?.(error); });
+    return work;
+  };
   function reconfigure(next: readonly AccountConfig[], nextConfig: AppConfig) {
     accounts = next; config = nextConfig;
-    for (const id of values.keys()) if (!next.some(a => a.id === id && a.enabled !== false)) values.delete(id);
-    for (const a of next.filter(a => a.enabled !== false)) {
+    for (const id of values.keys()) if (!next.some(a => a.id === id)) values.delete(id);
+    for (const a of next) {
       const previous = values.get(a.id) ?? options.initial.find(s => s.binding.accountId === a.id);
       const binding = resolveBinding(a, previous?.binding);
       if (!previous || previous.binding.generation !== binding.generation) values.set(a.id, { binding, windows: [], revision: 0, rateLimitLevel: 0 });
@@ -30,7 +37,7 @@ export function createCoordinator(options: {
     const a = accounts.find(a => a.id === o.binding.accountId);
     if (!a || a.enabled === false || resolveCollectionPolicy(a, config).mode === "remote-only") return;
     const state = values.get(a.id)!; const merged = mergeObservation(state, o);
-    if (merged !== state) { values.set(a.id, merged); void publish(); }
+    if (merged !== state) { values.set(a.id, merged); void publish().catch(() => {}); }
   }
   async function collect(a: AccountConfig, manual: boolean): Promise<RefreshResult["accounts"][number]> {
     const state = values.get(a.id)!; const now = options.now();
@@ -60,8 +67,15 @@ export function createCoordinator(options: {
         values.set(a.id, { ...current, rateLimitLevel: level, nextRetryAt: deadline, error: result.usage.error ?? "Limites indisponíveis.", failure, revision: current.revision + 1 });
         await publish(); return { accountId: a.id, outcome: "error", nextRetryAt: deadline, error: result.usage.error };
       }
+      const identityId = result.usage.identityId ?? (result.usage.email ? `email:${result.usage.email.toLowerCase()}` : undefined);
+      if (identityId && current.binding.identityId !== identityId) {
+        // Initial identity evidence can adopt an installed generation, but no
+        // unverified old windows may acquire the newly confirmed identity.
+        const binding = current.binding.identityId ? resolveBinding(a, current.binding, identityId) : { ...current.binding, identityId };
+        current = { binding, windows: [], revision: current.revision + 1, rateLimitLevel: current.rateLimitLevel, lastAttemptAt: current.lastAttemptAt };
+      }
       current = mergeObservation(current, { binding: current.binding, source: a.provider === "claude" ? "claude-sdk" : "codex-rpc",
-        observedAt: new Date(now).toISOString(), fetchedAt: result.fetchedAt, identityConfidence: "confirmed", windows: result.usage.windows });
+        observedAt: new Date(now).toISOString(), fetchedAt: result.fetchedAt, identityConfidence: identityId ? "confirmed" : "profile", windows: result.usage.windows });
       values.set(a.id, { ...current, email: result.usage.email, plan: result.usage.plan, failure: undefined, error: undefined,
         nextRetryAt: undefined, rateLimitLevel: 0, lastSuccessAt: result.fetchedAt ?? current.lastSuccessAt, revision: current.revision + 1 });
       await publish(); return { accountId: a.id, outcome: "queried" };
@@ -74,7 +88,7 @@ export function createCoordinator(options: {
     async tick() { if (!closed) await Promise.all(accounts.filter(a => a.enabled !== false).map(a => collect(a, false))); },
     async refresh(request: RefreshRequest): Promise<RefreshResult> {
       const selected = request.accountIds ?? accounts.filter(a => a.enabled !== false).map(a => a.id);
-      if (selected.some(id => !values.has(id))) throw new Error("Conta desconhecida.");
+      if (selected.some(id => !values.has(id) || !accounts.some(a => a.id === id && a.enabled !== false))) throw new Error("Conta desconhecida ou desabilitada.");
       return { id: request.id, completedAt: new Date(options.now()).toISOString(), accounts: await Promise.all(selected.map(id => collect(accounts.find(a => a.id === id)!, true))) };
     },
     async close() { closed = true; await Promise.allSettled([...running.values()]); await publishing; },

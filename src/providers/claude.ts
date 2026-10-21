@@ -195,6 +195,7 @@ export function parseClaudeUsage(
     displayMode: displayModeForAccount(account),
     plan: subscriptionLabel(initialization.account?.subscriptionType),
     email: initialization.account?.email,
+    identityId: initialization.account?.email ? `email:${initialization.account.email.toLowerCase()}` : undefined,
     windows,
     checkedAt,
   };

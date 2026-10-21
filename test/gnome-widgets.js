@@ -3,7 +3,7 @@
 export class Widget {
   constructor(props = {}) { Object.assign(this, props); this.children = []; this.signals = new Map(); this.width = 200; }
   add_child(child) { this.children.push(child); child.parent = this; }
-  add_actor(child) { this.add_child(child); }
+  set_child(child) { this.add_child(child); }
   set_child_at_index(child, index) { this.children.splice(this.children.indexOf(child), 1); this.children.splice(index, 0, child); }
   connect(signal, cb) { const id = this.signals.size + 1; this.signals.set(id, {signal, cb}); return id; }
   disconnect(id) { this.signals.delete(id); }

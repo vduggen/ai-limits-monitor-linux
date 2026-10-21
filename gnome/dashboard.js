@@ -1,6 +1,6 @@
 import St from 'gi://St';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
-import {formatReset, formatSnapshotAge} from './snapshot.js';
+import {formatReset, formatSnapshotAge, windowObservationState} from './snapshot.js';
 
 function label(parent, style = '') {
     const actor = new St.Label({style_class: style, x_expand: true});
@@ -66,9 +66,10 @@ export class AccountCard {
         this.retry.visible = Boolean(this.retry.text);
         for (const row of this.windows.values()) {
             const w = row.window;
-            const expired = w.resetsAt && Date.parse(w.resetsAt) <= nowMs;
+            const freshness = windowObservationState(w, nowMs);
+            const expired = freshness === 'expired';
             const age = Date.parse(w.observedAt);
-            const known = !Number.isFinite(age) || nowMs - age >= 120000;
+            const known = freshness === 'last-known';
             const state = expired ? 'Reset vencido; aguardando confirmação' : known ? 'Último conhecido' : 'Observado';
             row.time.text = `${state} · ${Number.isFinite(age) ? formatSnapshotAge(Math.max(0, nowMs - age)) : 'idade desconhecida'} · ${formatReset(w.resetsAt, nowMs)}`;
             row.track.opacity = expired ? 80 : known ? 160 : 255;
@@ -89,7 +90,7 @@ export class Dashboard {
         this.scroll = new St.ScrollView({style_class: 'ai-limits-dashboard', overlay_scrollbars: true, x_expand: true});
         this.content = new St.BoxLayout({vertical: true, x_expand: true});
         this.status = label(this.content, 'ai-limits-detail');
-        this.scroll.add_actor(this.content);
+        this.scroll.set_child(this.content);
         this.item.add_child(this.scroll);
         menu.addMenuItem(this.item);
         this.refreshItem = new PopupMenu.PopupMenuItem('Atualizar agora');
