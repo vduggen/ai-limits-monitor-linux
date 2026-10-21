@@ -2,7 +2,7 @@
 
 **Data:** 2026-10-21
 
-**Status:** proposta para revisão do usuário; implementação não iniciada.
+**Status:** aprovada pelo usuário nesta conversa; implementação não iniciada.
 
 ## 1. Objetivo e decisões aprovadas
 
@@ -262,6 +262,6 @@ Base factual: [estudo comparativo](../../../reports/Monitoramento%20local%20de%2
 - [x] Explorar código e pesquisa existente.
 - [x] Confirmar direção: coleta local e visual GNOME primeiro.
 - [x] Registrar proposta e revisar escopo, compatibilidade e riscos.
-- [ ] Usuário revisar e aprovar esta especificação.
+- [x] Usuário revisar e aprovar esta especificação.
 - [ ] Criar plano de implementação e selecionar forma de execução.
 - [ ] Implementar com testes e validar antes de instalar.
