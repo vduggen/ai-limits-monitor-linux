@@ -5,6 +5,21 @@ import { buildMenuView, buildPanelLabels, buildSnapshotView, formatReset } from 
 
 const NOW = Date.parse("2026-09-30T12:00:00.000Z");
 
+test("window cards preserve provenance age, remaining mode and retained error quota", () => {
+  const data = { id: "p", label: "Claude pessoal", provider: "claude", status: "error", displayMode: "used", email: "unconfirmed@test",
+    collection: { identityConfidence: "profile", nextRetryAt: new Date(NOW + 900000).toISOString(), revision: 1 }, error: "429",
+    windows: [{ id: "s", kind: "session", label: "Sessão", usedPercent: 37, remainingPercent: 63, windowDurationMins: 300,
+      source: "claude-statusline", observedAt: new Date(NOW - 180000).toISOString(), resetsAt: new Date(NOW + 3600000).toISOString() }] };
+  const view = buildSnapshotView(snapshotText([data]), NOW);
+  const card = buildMenuView(view, NOW).groups[0].accounts[0];
+  assert.equal(card.windows[0].fillRatio, 0.37); assert.equal(card.windows[0].state, "last-known");
+  assert.equal(card.windows[0].severity, "normal"); assert.match(card.windows[0].sourceText, /CLI/);
+  assert.equal(card.metadata.includes("unconfirmed@test"), false);
+  assert.match(buildPanelLabels(view).entries[0].text, /37%.*~/);
+  const remaining = buildMenuView(buildSnapshotView(snapshotText([{ ...data, displayMode: "remaining" }]), NOW), NOW).groups[0].accounts[0].windows[0];
+  assert.equal(remaining.fillRatio, 0.63); assert.equal(remaining.severity, "normal");
+});
+
 function snapshotText(accounts, createdAt = new Date(NOW).toISOString(), version = 1) {
   return JSON.stringify({ version, createdAt, accounts });
 }
@@ -188,21 +203,15 @@ test("menuViewExplainsCacheStatesAndFiltersUnsupportedAccounts", () => {
   assert.match(menu.statusText, /há 4min/);
   assert.deepEqual(menu.groups.map(({ provider }) => provider), ["claude", "codex"]);
   assert.deepEqual(menu.groups[0].accounts[0], {
+    id: "claude-error", provider: "claude", warning: "Falha de autenticação", nextRetryAt: undefined,
     title: "claude-error · Pro",
     metadata: "claude@example.test · Exibição: % restante",
     error: "Falha de autenticação",
     windows: [],
   });
-  assert.deepEqual(menu.groups[1].accounts[0], {
-    title: "codex-ok",
-    metadata: "Exibição: % usado",
-    error: null,
-    windows: [
-      {
-        text: `Semanal: 32% usado · ${formatReset("2026-10-01T12:00:00.000Z", NOW)}`,
-      },
-    ],
-  });
+  assert.equal(menu.groups[1].accounts[0].title, "codex-ok");
+  assert.equal(menu.groups[1].accounts[0].error, null);
+  assert.equal(menu.groups[1].accounts[0].windows[0].text, `Semanal: 32% usado · ${formatReset("2026-10-01T12:00:00.000Z", NOW)}`);
 
   const unsupportedOnly = buildMenuView(buildSnapshotView(
     snapshotText([account({ id: "unsupported", status: "unsupported" })]),
@@ -234,7 +243,7 @@ test("panelLabelsMarkStaleValuesAsOld", () => {
     claude: "Claude 60% (antigo)",
     codex: "Codex --% (antigo)",
     entries: [
-      { provider: "claude", initials: "C", text: "C 60% (antigo)" },
+      { provider: "claude", initials: "C", text: "C 60% ~ (antigo)", tooltip: "claude · Sessão · Semanal" },
     ],
   });
 });
@@ -283,10 +292,11 @@ test("panelEntriesShowUsableAccountsWithInitialsAndTheirConfiguredValues", () =>
   ]), NOW);
 
   assert.deepEqual(buildPanelLabels(view).entries, [
-    { provider: "claude", initials: "CP", text: "CP 60% · 35%" },
-    { provider: "claude", initials: "CTM", text: "CTM 80%" },
-    { provider: "claude", initials: "CE", text: "CE --% (erro)" },
-    { provider: "codex", initials: "CP", text: "CP 96% · 55%" },
+    { provider: "claude", initials: "CP", text: "CP 60% · 35% ~", tooltip: "Claude pessoal · Sessão · Semanal" },
+    { provider: "claude", initials: "CTM", text: "CTM 80% ~", tooltip: "Claude trabalho max · Sessão · Semanal" },
+    { provider: "claude", initials: "CE", text: "CE 1% ~", tooltip: "Claude erro · Sessão · Semanal" },
+    { provider: "codex", initials: "CP", text: "CP 96% · 55% ~", tooltip: "Codex pessoal · Sessão · Semanal" },
+    { provider: "codex", initials: "CE", text: "CE --%", tooltip: "codex-empty · Sessão · Semanal" },
   ]);
 });
 
@@ -301,7 +311,7 @@ test("panelEntriesOmitUnconfiguredProvidersAndMarkStaleValues", () => {
   ], new Date(NOW - 120_001).toISOString()), NOW);
 
   assert.deepEqual(buildPanelLabels(stale).entries, [
-    { provider: "codex", initials: "CP", text: "CP 20% (antigo)" },
+    { provider: "codex", initials: "CP", text: "CP 20% ~ (antigo)", tooltip: "Codex pessoal · Sessão · Semanal" },
   ]);
   assert.deepEqual(buildPanelLabels(buildSnapshotView(null, NOW)).entries, []);
 });

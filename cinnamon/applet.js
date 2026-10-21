@@ -69,6 +69,18 @@ function readSnapshot() {
     }
 }
 
+function windowFreshness(window, now = Date.now()) {
+    if (window.resetsAt && Date.parse(window.resetsAt) <= now) return "reset vencido; aguardando confirmação";
+    const at = Date.parse(window.sourceEventAt || window.observedAt);
+    if (!Number.isFinite(at)) return "idade desconhecida; último conhecido";
+    return `${now - at >= 120000 ? "último conhecido · " : ""}observação ${formatSnapshotAge(new Date(at).toISOString())}`;
+}
+
+function accountWarning(account) {
+    return [account.error, account.collection && account.collection.nextRetryAt
+        ? `Próxima tentativa: ${new Date(account.collection.nextRetryAt).toLocaleString()}` : ""].filter(Boolean).join(" · ");
+}
+
 function displayMode(account) {
     return account.displayMode === "used" ? "used" : "remaining";
 }
@@ -96,7 +108,7 @@ function windowPriority(kind) {
 function providerIndicators(accounts, provider) {
     const windowsByKey = new Map();
     for (const account of accounts) {
-        if (account.provider !== provider || account.status !== "ok" || !Array.isArray(account.windows)) {
+        if (account.provider !== provider || account.status === "unsupported" || !Array.isArray(account.windows)) {
             continue;
         }
 
@@ -184,15 +196,15 @@ function addAccountDetails(menu, account) {
         );
     }
 
-    if (account.status !== "ok") {
+    if (account.status !== "ok" || account.error) {
         addStyledItem(
             menu,
-            account.error || "Não foi possível consultar esta conta.",
+            accountWarning(account) || "Não foi possível consultar esta conta.",
             "padding-top: 2px; padding-bottom: 7px;",
             "color: #d96b6b;",
             "ai-limits-error",
         );
-        return;
+        if (!(account.windows || []).length) return;
     }
 
     for (const window of account.windows || []) {
@@ -200,7 +212,7 @@ function addAccountDetails(menu, account) {
         const reset = formatReset(window.resetsAt);
         addStyledItem(
             menu,
-            `${window.label}: ${percent}% ${mode === "used" ? "usado" : "restante"}${reset ? ` · ${reset}` : ""}`,
+            `${window.label}: ${percent}% ${mode === "used" ? "usado" : "restante"}${reset ? ` · ${reset}` : ""} · ${windowFreshness(window)} · ${window.source || "fonte desconhecida"}`,
             "padding-top: 2px; padding-bottom: 2px;",
             "font-size: 0.95em;",
             "ai-limits-window",
@@ -269,9 +281,7 @@ class AiLimitsApplet extends Applet.Applet {
             const providerAccounts = Array.isArray(accounts)
                 ? accounts.filter((account) =>
                     account.provider === provider
-                    && account.status === "ok"
-                    && Array.isArray(account.windows)
-                    && account.windows.length > 0)
+                    && account.status !== "unsupported")
                 : [null];
 
             for (const account of providerAccounts) {
@@ -298,7 +308,7 @@ class AiLimitsApplet extends Applet.Applet {
                 const values = indicators.map((indicator) => `${indicator.value}%`).join(" · ");
                 const label = new St.Label({
                     text: account
-                        ? `${accountInitials(account)} ${values || "--%"}`
+                        ? `${accountInitials(account)} ${values || "--%"}${(account.windows || []).some(w => /conhecido|vencido/.test(windowFreshness(w))) ? " ~" : ""}${account.error ? " !" : ""}`
                         : "--%",
                     style_class: "applet-label",
                     reactive: false,

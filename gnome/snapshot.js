@@ -40,6 +40,8 @@ function normalizeWindow(candidate) {
     label: candidate.label,
     usedPercent: candidate.usedPercent,
     remainingPercent: candidate.remainingPercent,
+    ...Object.fromEntries(["source", "observedAt", "sourceEventAt", "fetchedAt", "identityConfidence", "bindingGeneration"]
+      .filter(key => typeof candidate[key] === "string").map(key => [key, candidate[key]])),
     ...(typeof candidate.resetsAt === "string" ? { resetsAt: candidate.resetsAt } : {}),
     ...(Number.isFinite(candidate.windowDurationMins) && candidate.windowDurationMins > 0
       ? { windowDurationMins: candidate.windowDurationMins }
@@ -69,8 +71,13 @@ function normalizeAccount(candidate) {
     status: candidate.status,
     displayMode: candidate.displayMode === "used" ? "used" : "remaining",
     ...(typeof candidate.plan === "string" ? { plan: candidate.plan } : {}),
-    ...(typeof candidate.email === "string" ? { email: candidate.email } : {}),
+    ...(typeof candidate.email === "string" && candidate.collection?.identityConfidence !== "profile" ? { email: candidate.email } : {}),
     ...(typeof candidate.error === "string" ? { error: candidate.error } : {}),
+    ...(isRecord(candidate.collection) ? { collection: {
+      identityConfidence: candidate.collection.identityConfidence === "confirmed" ? "confirmed" : "profile",
+      nextRetryAt: typeof candidate.collection.nextRetryAt === "string" ? candidate.collection.nextRetryAt : null,
+      revision: Number.isSafeInteger(candidate.collection.revision) ? candidate.collection.revision : 0,
+    } } : {}),
     windows,
   };
 }
@@ -156,6 +163,7 @@ export function buildSnapshotView(text, nowMs = Date.now(), staleAfterMs = 120_0
     createdAt: snapshot.createdAt,
     ageMs,
     timestampInFuture,
+    refreshResult: isRecord(snapshot.refreshResult) ? snapshot.refreshResult : null,
     accounts,
     indicators: {
       claude: providerIndicators(accounts, "claude"),
@@ -245,20 +253,24 @@ export function buildMenuView(snapshotView, nowMs = Date.now()) {
       .filter((account) => account.provider === provider)
       .map((account) => {
         const mode = account.displayMode === "used" ? "used" : "remaining";
-        const windows = account.status === "ok"
-          ? account.windows.map((window) => {
+        const windows = account.windows.map((window) => {
             const percent = mode === "used" ? window.usedPercent : window.remainingPercent;
             const modeLabel = mode === "used" ? "usado" : "restante";
             return {
+              ...buildWindowView(window, mode, nowMs),
               text: `${window.label}: ${percent}% ${modeLabel} · ${formatReset(window.resetsAt, nowMs)}`,
             };
-          })
-          : [];
+          });
 
         return {
+          id: account.id,
+          provider: account.provider,
+          nextRetryAt: account.collection?.nextRetryAt,
+          warning: account.error ?? null,
           title: `${account.label}${account.plan ? ` · ${account.plan}` : ""}`,
           metadata: [
             account.email,
+            account.collection?.identityConfidence === "profile" ? "Observação do perfil; identidade não confirmada" : null,
             `Exibição: ${mode === "used" ? "% usado" : "% restante"}`,
           ].filter(Boolean).join(" · "),
           error: account.status === "error"
@@ -289,20 +301,19 @@ export function buildPanelLabels(snapshotView) {
   const accounts = Array.isArray(snapshotView.accounts) ? snapshotView.accounts : [];
   const entries = providers.flatMap((provider) => accounts
     .filter((account) => account.provider === provider
-      && (account.status === "error" || (account.status === "ok"
-      && Array.isArray(account.windows)
-      && account.windows.length > 0)))
+      && account.status !== "unsupported")
     .map((account) => {
       const initials = accountInitials(account);
-      const values = providerIndicators([account], provider)
+      const values = providerIndicators([{ ...account, status: "ok" }], provider)
         .map((indicator) => `${indicator.value}%`)
         .join(" · ");
       return {
         provider,
         initials,
-        text: account.status === "error"
+        text: account.status === "error" && !values
           ? `${initials} --% (erro)${staleMarker}`
-          : `${initials} ${values}${staleMarker}`,
+          : `${initials} ${values || "--%"}${account.windows.some(w => windowObservationState(w, Date.parse(snapshotView.createdAt) + (snapshotView.ageMs ?? 0)) !== "observed") ? " ~" : ""}${account.error ? " !" : ""}${staleMarker}`,
+        tooltip: `${account.label} · Sessão · Semanal${account.error ? ` · ${account.error}` : ""}`,
       };
     }));
 
@@ -315,6 +326,25 @@ export function buildPanelLabels(snapshotView) {
     return [provider, `${label} ${value}${staleMarker}`];
   }));
   return { ...labels, entries };
+}
+
+export function windowObservationState(window, nowMs) {
+  if (window.resetsAt && Date.parse(window.resetsAt) <= nowMs) return "expired";
+  const at = Date.parse(window.sourceEventAt ?? window.observedAt);
+  return !Number.isFinite(at) || at > nowMs + 5000 || nowMs - at >= 120000 ? "last-known" : "observed";
+}
+
+export function buildWindowView(window, mode, nowMs) {
+  const percent = mode === "used" ? window.usedPercent : window.remainingPercent;
+  const state = windowObservationState(window, nowMs);
+  const at = Date.parse(window.sourceEventAt ?? window.observedAt);
+  const ageText = Number.isFinite(at) ? `Observado ${formatSnapshotAge(Math.max(0, nowMs - at))}` : "Idade da observação desconhecida";
+  const sourceText = ({ "claude-statusline": "CLI Claude · statusline", "codex-rollout": "CLI Codex · sessão local", "claude-sdk": "CLI Claude · consulta SDK", "codex-rpc": "CLI Codex · consulta RPC" })[window.source] ?? "Fonte desconhecida";
+  const label = window.kind === "session" && window.windowDurationMins === 300 ? "Sessão (5h)" : window.label;
+  const resetText = formatReset(window.resetsAt, nowMs);
+  return { id: window.id, kind: window.kind, label, percent, mode, fillRatio: percent / 100, severity: window.usedPercent >= 90 ? "critical" : window.usedPercent >= 75 ? "warning" : "normal",
+    state, sourceText, ageText, resetText, resetsAt: window.resetsAt, observedAt: window.sourceEventAt ?? window.observedAt,
+    accessibleText: `${label}: ${percent}% ${mode === "used" ? "usado" : "restante"}. ${state === "expired" ? "Reset vencido; aguardando confirmação." : state === "last-known" ? "Último conhecido." : "Observação local recebida."} ${sourceText}. ${ageText}. ${resetText}. Idade remota não confirmada.` };
 }
 
 function accountInitials(account) {

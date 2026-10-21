@@ -48,7 +48,7 @@ test("a rate-limited account stays visible without presenting cached percentages
   const view = buildSnapshotView(JSON.stringify({ version: 1, createdAt: new Date(NOW).toISOString(),
     accounts: [{ ...account, status: "error", error, windows: [] }] }), NOW);
   assert.deepEqual(buildPanelLabels(view).entries, [
-    { provider: "claude", initials: "CP", text: "CP --% (erro)" },
+    { provider: "claude", initials: "CP", text: "CP --% (erro)", tooltip: `Claude pessoal · Sessão · Semanal · ${error}` },
   ]);
   assert.equal(buildMenuView(view, NOW).groups[0].accounts[0].error, error);
   assert.match(buildMenuView(view, NOW).statusText, /sem dados atuais/);
