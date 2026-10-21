@@ -1,3 +1,6 @@
+import os from "node:os";
+import path from "node:path";
+
 import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
 import type { AccountConfig, AccountUsage } from "../shared/types.js";
@@ -52,6 +55,33 @@ function waitForAbort(signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
 }
 
+export function createClaudeEnvironment(
+  configDir: string | undefined,
+  baseEnvironment: NodeJS.ProcessEnv = process.env,
+  homeDirectory = os.homedir(),
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {
+    ...baseEnvironment,
+    ENABLE_CLAUDEAI_MCP_SERVERS: "false",
+    CLAUDE_CODE_AUTO_CONNECT_IDE: "0",
+    CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL: "1",
+  };
+  const expandedConfigDir = configDir === "~"
+    ? homeDirectory
+    : configDir?.startsWith("~/")
+      ? path.join(homeDirectory, configDir.slice(2))
+      : configDir;
+  const defaultConfigDir = path.resolve(homeDirectory, ".claude");
+
+  if (!expandedConfigDir || path.resolve(expandedConfigDir) === defaultConfigDir) {
+    delete environment.CLAUDE_CONFIG_DIR;
+  } else {
+    environment.CLAUDE_CONFIG_DIR = expandedConfigDir;
+  }
+
+  return environment;
+}
+
 function subscriptionLabel(value: string | undefined): string | undefined {
   if (!value) return undefined;
   const normalized = value.toLowerCase().replace(/[\s_-]+/g, "");
@@ -64,7 +94,35 @@ function subscriptionLabel(value: string | undefined): string | undefined {
   return value;
 }
 
-function parseUsage(
+// The CLI can return last-known limits after a 429 without exposing the failure
+// in get_usage's JSON. Inspect only the relevant stderr lines; never log them.
+export class ClaudeUsageBackoff {
+  retryAt = 0;
+  private pending = "";
+
+  observe(chunk: string, now = Date.now()): void {
+    const lines = (this.pending + chunk).split(/\r?\n/);
+    this.pending = (lines.pop() ?? "").slice(-8192);
+    for (const line of lines) {
+      if (!/fetchUtilization|Failed to load usage data/.test(line) || !/\b429\b/.test(line)) continue;
+      const delay = line.match(/not asking again for (\d+)s/);
+      if (delay) {
+        this.retryAt = now + Math.max(1, Number(delay[1])) * 1000;
+      } else if (this.retryAt <= now) {
+        this.retryAt = now + 15 * 60_000;
+      }
+    }
+  }
+
+  error(now = Date.now()): string | null {
+    if (this.retryAt <= now) return null;
+    return `Claude limitou a consulta (HTTP 429). Dados antigos não confirmados. Nova tentativa após ${new Date(this.retryAt).toLocaleString("pt-BR")}.`;
+  }
+}
+
+const blockedProbes = new Map<string, { retryAt: number; usage: AccountUsage }>();
+
+export function parseClaudeUsage(
   account: AccountConfig,
   initialization: ClaudeInitialization,
   response: ClaudeUsageProvider,
@@ -76,13 +134,15 @@ function parseUsage(
       id: account.id,
       label: account.label,
       provider: "claude",
-      status: "unsupported",
+      status: response.rate_limits_available === false ? "unsupported" : "error",
       displayMode: displayModeForAccount(account),
       plan: subscriptionLabel(initialization.account?.subscriptionType),
       email: initialization.account?.email,
       windows: [],
       checkedAt,
-      error: "A conta não reportou limites de assinatura.",
+      error: response.rate_limits_available === false
+        ? "A conta não reportou limites de assinatura."
+        : "Não foi possível consultar os limites da assinatura Claude. A consulta será tentada novamente.",
     };
   }
 
@@ -141,20 +201,30 @@ function parseUsage(
 export async function readClaudeUsage(
   account: AccountConfig,
   timeoutSeconds: number,
+  queryFactory: typeof query = query,
 ): Promise<AccountUsage> {
+  const probeKey = JSON.stringify([account.id, account.configDir, account.binaryPath]);
+  const blocked = blockedProbes.get(probeKey);
+  if (blocked && Date.now() < blocked.retryAt) return blocked.usage;
+  blockedProbes.delete(probeKey);
   const checkedAt = new Date().toISOString();
   const abortController = new AbortController();
+  const backoff = new ClaudeUsageBackoff();
+
+  const rememberFailure = (usage: AccountUsage): AccountUsage => {
+    if (usage.status === "error") {
+      blockedProbes.set(probeKey, {
+        retryAt: backoff.retryAt > Date.now() ? backoff.retryAt : Date.now() + 5 * 60_000,
+        usage,
+      });
+    }
+    return usage;
+  };
 
   try {
-    const environment = {
-      ...process.env,
-      CLAUDE_CONFIG_DIR: account.configDir,
-      ENABLE_CLAUDEAI_MCP_SERVERS: "false",
-      CLAUDE_CODE_AUTO_CONNECT_IDE: "0",
-      CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL: "1",
-    };
+    const environment = createClaudeEnvironment(account.configDir);
 
-    const q = query({
+    const q = queryFactory({
       prompt: (async function* (): AsyncGenerator<SDKUserMessage> {
         await waitForAbort(abortController.signal);
       })(),
@@ -168,7 +238,8 @@ export async function readClaudeUsage(
         mcpServers: {},
         strictMcpConfig: true,
         env: environment,
-        stderr: () => {},
+        extraArgs: { "debug-to-stderr": null },
+        stderr: (data) => backoff.observe(data),
       },
     });
 
@@ -179,17 +250,28 @@ export async function readClaudeUsage(
         "Claude não respondeu à inicialização.",
       )) as ClaudeInitialization;
       const usage = (await withTimeout(
-        q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(),
+        q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true }),
         Math.min(timeoutSeconds * 1000, 10_000),
         "Claude não respondeu à consulta de uso.",
       )) as ClaudeUsageProvider;
-      return parseUsage(account, initialization, usage, checkedAt);
+      // stdout and stderr are independent pipes. The SDK's async return waits
+      // for process cleanup (including its stderr tail) before classification.
+      await withTimeout(q.return(), 5_000, "Claude não encerrou a consulta de uso.");
+      backoff.observe("\n");
+      const rateLimitError = backoff.error();
+      if (rateLimitError) {
+        return rememberFailure({
+          ...parseClaudeUsage(account, initialization, { rate_limits_available: true, rate_limits: null }, checkedAt),
+          error: rateLimitError,
+        });
+      }
+      return rememberFailure(parseClaudeUsage(account, initialization, usage, checkedAt));
     } finally {
       abortController.abort();
     }
   } catch (error) {
     abortController.abort();
-    return {
+    return rememberFailure({
       id: account.id,
       label: account.label,
       provider: "claude",
@@ -197,7 +279,7 @@ export async function readClaudeUsage(
       displayMode: displayModeForAccount(account),
       windows: [],
       checkedAt,
-      error: error instanceof Error ? error.message : String(error),
-    };
+      error: backoff.error() ?? (error instanceof Error ? error.message : String(error)),
+    });
   }
 }
