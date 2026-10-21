@@ -285,6 +285,7 @@ test("panelEntriesShowUsableAccountsWithInitialsAndTheirConfiguredValues", () =>
   assert.deepEqual(buildPanelLabels(view).entries, [
     { provider: "claude", initials: "CP", text: "CP 60% · 35%" },
     { provider: "claude", initials: "CTM", text: "CTM 80%" },
+    { provider: "claude", initials: "CE", text: "CE --% (erro)" },
     { provider: "codex", initials: "CP", text: "CP 96% · 55%" },
   ]);
 });

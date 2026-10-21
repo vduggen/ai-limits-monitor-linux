@@ -223,11 +223,14 @@ export function buildMenuView(snapshotView, nowMs = Date.now()) {
   }
 
   const age = formatSnapshotAge(snapshotView.ageMs ?? Math.max(0, nowMs - Date.parse(snapshotView.createdAt)));
+  const hasErrors = snapshotView.accounts?.some((account) => account.status === "error");
   const statusText = snapshotView.timestampInFuture
     ? "Timestamp do cache no futuro; dados não confirmados. Confira o relógio do sistema."
     : snapshotView.state === "stale"
       ? `Dados desatualizados — atualizado ${age}.`
-      : `Atualizado ${age}.`;
+      : hasErrors
+        ? `Consulta ${age}. Há contas sem dados atuais; veja os avisos abaixo.`
+        : `Atualizado ${age}.`;
   const providerNames = [
     ["claude", "Claude"],
     ["codex", "Codex"],
@@ -286,9 +289,9 @@ export function buildPanelLabels(snapshotView) {
   const accounts = Array.isArray(snapshotView.accounts) ? snapshotView.accounts : [];
   const entries = providers.flatMap((provider) => accounts
     .filter((account) => account.provider === provider
-      && account.status === "ok"
+      && (account.status === "error" || (account.status === "ok"
       && Array.isArray(account.windows)
-      && account.windows.length > 0)
+      && account.windows.length > 0)))
     .map((account) => {
       const initials = accountInitials(account);
       const values = providerIndicators([account], provider)
@@ -297,7 +300,9 @@ export function buildPanelLabels(snapshotView) {
       return {
         provider,
         initials,
-        text: `${initials} ${values}${staleMarker}`,
+        text: account.status === "error"
+          ? `${initials} --% (erro)${staleMarker}`
+          : `${initials} ${values}${staleMarker}`,
       };
     }));
 

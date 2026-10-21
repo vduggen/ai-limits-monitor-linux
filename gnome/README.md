@@ -118,6 +118,21 @@ fazer logout para alterar contas ou solicitar uma consulta. Ao instalar código
 JavaScript novo, use o fluxo de atualização acima; se o Shell mantiver o módulo
 antigo carregado, uma recarga da sessão poderá ser necessária uma única vez.
 
+### Claude: limites temporariamente indisponíveis
+
+O CLI pode responder ao SDK com percentuais antigos quando a consulta de uso
+recebe HTTP 429. O daemon detecta esse diagnóstico e não apresenta os números
+guardados como atuais. A conta permanece no painel como `--% (erro)`; o menu
+mostra o motivo e o horário da próxima tentativa. O horário geral do snapshot
+não significa que todas as contas foram atualizadas com sucesso.
+
+O daemon respeita o prazo de espera informado pelo CLI (15 minutos quando um
+429 não informa prazo) e tenta novamente automaticamente no próximo ciclo após
+esse prazo. Outras falhas temporárias aguardam 5 minutos. As outras contas
+continuam sendo consultadas normalmente. Reiniciar o serviço não elimina o
+bloqueio que o próprio CLI lembra para a autenticação; não use reinícios
+repetidos para tentar contorná-lo.
+
 ## Remover
 
 Desabilite e remova apenas a extensão GNOME:
