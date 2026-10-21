@@ -221,7 +221,7 @@ Adicionar a `UsageWindow` os metadados opcionais `source`, `observedAt`, `source
 - [x] Dois marcos dependentes, com Cinnamon adaptado antes de disponibilizar dados retidos.
 - [x] Plano não altera credenciais nem configurações reais; implantação exige autorizações específicas.
 - [x] Usuário revisar o plano e selecionar execução nativa ou dirigida por subagentes (nativa).
-- [ ] Execução e validação.
+- [x] Execução e validação automatizada; inspeção visual de sessão continua separada.
 
 ### Estado de entrega (2026-10-21)
 
@@ -236,3 +236,14 @@ Adicionar a `UsageWindow` os metadados opcionais `source`, `observedAt`, `source
 
 O usuário autorizou instalação de teste neste computador, com backup, após a
 revisão/correções. Ponte real e alteração dos 60 segundos continuam não autorizadas.
+
+### Instalação de teste
+
+- [x] Backup privado, comparação de hashes e cópia dos artefatos compilados e
+  da extensão versão 2, sem merge nem alteração da unidade personalizada.
+- [x] Daemon ativo; três contas/seis janelas preservadas; pedido UUID vazio
+  processado para testar transporte sem forçar consulta remota.
+- [x] Configuração original e intervalo de 60 segundos preservados; ponte real
+  não habilitada e segundo computador não alterado.
+- [ ] GNOME ainda carrega a versão 1 em memória; nova sessão voluntária do usuário
+  necessária para carregar a versão 2 e validar o menu. Sessão não encerrada.

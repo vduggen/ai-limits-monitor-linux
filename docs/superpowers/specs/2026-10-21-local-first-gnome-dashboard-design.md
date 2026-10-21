@@ -264,4 +264,5 @@ Base factual: [estudo comparativo](../../../reports/Monitoramento%20local%20de%2
 - [x] Registrar proposta e revisar escopo, compatibilidade e riscos.
 - [x] Usuário revisar e aprovar esta especificação.
 - [x] Criar plano de implementação e selecionar forma de execução (nativa).
-- [ ] Implementar com testes e validar antes de instalar.
+- [x] Implementar com testes e revisão independente antes da instalação de teste.
+- [ ] Validar menu em sessão GNOME nova e apresentação Cinnamon em sessão real.
