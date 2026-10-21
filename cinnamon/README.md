@@ -1,5 +1,10 @@
 # AI Limits Monitor for Linux — Cinnamon
 
+O coletor prioriza fontes locais e conserva quota útil com aviso/idade em falhas.
+O novo visual foi reservado ao GNOME; Cinnamon recebe compatibilidade mínima.
+Veja [limites, opt-in e rollback](../docs/local-first-monitoring.md). A apresentação
+de quota retida ainda exige smoke test em uma sessão Cinnamon real.
+
 O applet lê o snapshot gerado pelo daemon em:
 
 ```text

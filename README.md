@@ -8,9 +8,10 @@ com suporte a múltiplas contas e períodos de uso.
 
 ## Recursos
 
-- Claude: consulta o `get_usage` do Claude Agent SDK usando uma sessão autenticada
-  do Claude Code;
-- Codex: inicia `codex app-server` e consulta `account/rateLimits/read`;
+- Claude: observações de quota pela statusline opt-in, com `get_usage` do SDK
+  como fallback coordenado;
+- Codex: eventos de quota dos rollouts locais, com `account/rateLimits/read` do
+  app-server como fallback;
 - múltiplas contas Claude e Codex, isoladas por `CLAUDE_CONFIG_DIR` e `CODEX_HOME`;
 - gerenciador GTK para adicionar perfis detectados ou pastas alternativas, editar
   rótulos/modo de exibição e remover contas;
@@ -130,8 +131,11 @@ Para Codex, use `homeDir` no lugar de `configDir`:
 
 Use `displayMode: "used"` para mostrar o percentual consumido ou
 `displayMode: "remaining"` para mostrar o percentual restante. O padrão é
-`remaining`. `pollIntervalSeconds` controla a frequência das consultas, e
+`remaining`. `pollIntervalSeconds` preserva o intervalo remoto legado, e
 `probeTimeoutSeconds` controla o tempo máximo de cada conta.
+
+Veja [monitoramento local prioritário](docs/local-first-monitoring.md) para modos
+de coleta, integração reversível, cooldown, diagnóstico e implantação controlada.
 
 ## Executar e instalar o serviço
 
@@ -240,7 +244,8 @@ em [`cinnamon/BRAND-SOURCES.md`](cinnamon/BRAND-SOURCES.md).
 
 - as APIs de uso usadas pelo Claude Agent SDK e pelo Codex app-server são
   experimentais ou internas e podem mudar;
-- o daemon faz uma consulta completa por conta em cada ciclo;
+- observações locais não garantem refletir uso externo ao CLI; a fonte e a idade
+  por janela devem ser consideradas, não apenas a publicação do snapshot;
 - a disponibilidade dos períodos depende do que cada provedor reporta;
 - contas autenticadas somente por API key não expõem limites de assinatura e são
   tratadas como `unsupported`.

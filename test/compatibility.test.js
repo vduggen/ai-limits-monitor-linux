@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, mkdtemp, rm } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -58,7 +59,7 @@ test("visibleBrandingUsesTheGenericLinuxProductName", async () => {
     assert.ok(source.includes(productName), `Expected source to include ${productName}`);
 });
 
-test("manualInstallCommandsIncludeAccountAndCacheHelpers", async () => {
+test("manualInstallCommandsIncludeAccountAndCacheHelpers", async (t) => {
   const readme = await read("README.md");
   const cinnamonReadme = await read("cinnamon/README.md");
   const gnomeReadme = await read("gnome/README.md");
@@ -76,6 +77,12 @@ test("manualInstallCommandsIncludeAccountAndCacheHelpers", async () => {
   assert.ok(gnomeCopies.every((command) => command.includes("gnome/cache-events.js")));
   assert.equal(gnomeEditorCopies.length, 2);
   assert.ok(gnomeEditorCopies.every((command) => command.includes("cinnamon/account_config.py")));
+  const target = await mkdtemp('/tmp/opencode/install-contract-');
+  t.after(() => rm(target, {recursive: true, force: true}));
+  const copied = spawnSync('/bin/sh', ['-c', gnomeCopies[0].replaceAll('\\', '')], {env: {...process.env, TARGET: target}, encoding: 'utf8'});
+  assert.equal(copied.status, 0, copied.stderr);
+  for (const file of ['extension.js', 'snapshot.js', 'cache-events.js', 'dashboard.js', 'refresh-request.js', 'stylesheet.css'])
+    assert.equal(await readFile(`${target}/${file}`, 'utf8'), await read(`gnome/${file}`));
 });
 
 test("manualInstallCommandsUseCanonicalRepositoryPaths", async () => {
