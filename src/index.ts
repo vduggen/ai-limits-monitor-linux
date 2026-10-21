@@ -1,119 +1,54 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
+import { stat, readFile } from "node:fs/promises";
 import { configPath, loadConfig, cachePath } from "./config.js";
-import { writeSnapshot } from "./cache.js";
-import { readClaudeUsage } from "./providers/claude.js";
-import { readCodexUsage } from "./providers/codex.js";
-import { formatReset } from "./shared/usage.js";
-import type { AccountConfig, AccountUsage, UsageSnapshot } from "./shared/types.js";
-
-interface CliOptions {
-  readonly json: boolean;
-  readonly provider?: "claude" | "codex";
-}
-
-function parseArgs(args: readonly string[]): { command: string; options: CliOptions } {
-  const command = args[0] && !args[0].startsWith("-") ? args[0] : "check";
-  return {
-    command,
-    options: {
-      json: args.includes("--json"),
-      provider: args.includes("--claude") ? "claude" : args.includes("--codex") ? "codex" : undefined,
-    },
-  };
-}
-
-async function readAccount(account: AccountConfig, timeoutSeconds: number): Promise<AccountUsage> {
-  return account.provider === "claude"
-    ? readClaudeUsage(account, timeoutSeconds)
-    : readCodexUsage(account, timeoutSeconds);
-}
-
-function indicatorValue(usage: AccountUsage): number | undefined {
-  if (usage.windows.length === 0) return undefined;
-  if (usage.displayMode === "used") {
-    return usage.windows.reduce((highest, window) => Math.max(highest, window.usedPercent), 0);
-  }
-  return usage.windows.reduce(
-    (lowest, window) => Math.min(lowest, window.remainingPercent),
-    100,
-  );
-}
-
-function printUsage(usage: AccountUsage): void {
-  const plan = usage.plan ? ` · ${usage.plan}` : "";
-  console.log(`\n${usage.label} [${usage.provider}]${plan}`);
-  if (usage.email) console.log(`  conta: ${usage.email}`);
-  if (usage.status !== "ok") {
-    console.log(`  status: ${usage.status}${usage.error ? ` — ${usage.error}` : ""}`);
-    return;
-  }
-  if (usage.windows.length === 0) {
-    console.log("  Nenhuma janela de uso foi reportada.");
-    return;
-  }
-  for (const window of usage.windows) {
-    const reset = formatReset(window.resetsAt);
-    const percent = usage.displayMode === "used" ? window.usedPercent : window.remainingPercent;
-    const suffix = usage.displayMode === "used" ? "usado" : "restante";
-    console.log(
-      `  ${window.label}: ${percent}% ${suffix}${reset ? ` · reset ${reset}` : ""}`,
-    );
-  }
-  const indicator = indicatorValue(usage);
-  if (indicator !== undefined) {
-    const suffix = usage.displayMode === "used" ? "usado" : "restante";
-    console.log(`  indicador: ${indicator}% ${suffix}`);
-  }
-}
-
-async function check(options: CliOptions): Promise<UsageSnapshot> {
-  const config = await loadConfig();
-  const accounts = config.accounts.filter(
-    (account) => account.enabled !== false && (!options.provider || account.provider === options.provider),
-  );
-  if (accounts.length === 0) throw new Error("Nenhuma conta habilitada para esta consulta.");
-
-  const results = await Promise.all(accounts.map((account) => readAccount(account, config.probeTimeoutSeconds)));
-  const snapshot: UsageSnapshot = {
-    version: 1,
-    createdAt: new Date().toISOString(),
-    configPath: configPath(),
-    accounts: results,
-  };
-  await writeSnapshot(cachePath(), snapshot);
-  return snapshot;
-}
+import { runDaemon } from "./collection/daemon.js";
+import { submitRefresh, waitRefreshResult } from "./collection/refresh-requests.js";
+import { loadRuntimeState } from "./collection/runtime-state.js";
+import { resolveBinding } from "./collection/identity.js";
+import { previewClaudeIntegration, installClaudeIntegration, removeClaudeIntegration } from "./collection/claude-install.js";
 
 async function main(): Promise<void> {
-  const { command, options } = parseArgs(process.argv.slice(2));
-  if (!["check", "watch"].includes(command)) {
-    console.error("Uso: pnpm dev -- [check|watch] [--json] [--claude|--codex]");
-    process.exitCode = 2;
-    return;
+  const args = process.argv.slice(2); const command = args[0] && !args[0].startsWith("-") ? args[0] : "check";
+  const root = path.dirname(cachePath());
+  if (command === "integration") {
+    const config = await loadConfig(); const id = args[args.indexOf("--account") + 1];
+    const a = config.accounts.find(a => a.id === id && a.provider === "claude"); if (!a) throw new Error("Selecione uma conta Claude com --account <id>.");
+    const states = await loadRuntimeState(root).catch(() => []);
+    const binding = resolveBinding(a, states.find(s => s.binding.accountId === a.id)?.binding);
+    const settings = path.join(binding.profilePath, "settings.json");
+    if (args[1] === "remove") { if (!args.includes("--confirm")) throw new Error("Confirme remoção com --confirm."); await removeClaudeIntegration(settings, root); return; }
+    const preview = await previewClaudeIntegration(settings, binding, fileURLToPath(new URL("./statusline.js", import.meta.url)), root);
+    if (args[1] === "preview") { console.log(JSON.stringify(preview, null, 2)); return; }
+    if (args[1] === "install" && args.includes("--confirm")) { await installClaudeIntegration(preview); console.log("Integração habilitada para o perfil selecionado."); return; }
+    throw new Error("Use integration preview|install|remove --account <id> [--confirm].");
   }
-
-  const config = await loadConfig();
-  do {
-    try {
-      const snapshot = await check(options);
-      if (options.json) {
-        console.log(JSON.stringify(snapshot, null, 2));
-      } else {
-        console.log(`AI Limits Monitor for Linux · ${new Date(snapshot.createdAt).toLocaleString("pt-BR")}`);
-        for (const usage of snapshot.accounts) printUsage(usage);
-        console.log(`\nCache: ${cachePath()}`);
+  if (!["check", "watch", "refresh"].includes(command)) throw new Error("Uso: check|watch|refresh|integration.");
+  const abort = new AbortController();
+  const stop = () => abort.abort(); process.once("SIGTERM", stop); process.once("SIGINT", stop);
+  try {
+    if (command === "watch") { await runDaemon(configPath(), cachePath(), abort.signal); return; }
+    const config = await loadConfig();
+    const provider = args.includes("--claude") ? "claude" : args.includes("--codex") ? "codex" : undefined;
+    const accountIds = config.accounts.filter(a => a.enabled !== false && (!provider || a.provider === provider)).map(a => a.id);
+    const active = await stat(path.join(root, "collector.lock")).catch(() => null);
+    if (active || command === "refresh") {
+      if (!active) throw new Error("Coletor não está ativo. Inicie o serviço ou execute check.");
+      const request = { version: 1 as const, id: randomUUID(), createdAt: new Date().toISOString(), accountIds };
+      await submitRefresh(root, request); const result = await waitRefreshResult(root, request.id);
+      if (args.includes("--json")) { console.log(JSON.stringify(result, null, 2)); return; }
+      console.log(JSON.stringify(result, null, 2));
+    } else await runDaemon(configPath(), cachePath(), abort.signal, { once: true, accountIds });
+    const s = JSON.parse(await readFile(cachePath(), "utf8"));
+    if (args.includes("--json")) console.log(JSON.stringify(s, null, 2));
+    else {
+      console.log(`AI Limits Monitor for Linux · ${new Date(s.createdAt).toLocaleString("pt-BR")}`);
+      for (const a of s.accounts) {
+        console.log(`${a.label} [${a.provider}]${a.error ? ` — ${a.error}` : ""}`);
+        for (const w of a.windows) console.log(`  ${w.label}: ${a.displayMode === "used" ? w.usedPercent : w.remainingPercent}% ${a.displayMode === "used" ? "usado" : "restante"}`);
       }
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      process.exitCode = 1;
-      if (command === "check") return;
     }
-    if (command === "watch") {
-      await new Promise((resolve) => setTimeout(resolve, (config.pollIntervalSeconds ?? 60) * 1000));
-    }
-  } while (command === "watch");
+  } finally { process.off("SIGTERM", stop); process.off("SIGINT", stop); }
 }
-
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.stack ?? error.message : String(error));
-  process.exitCode = 1;
-});
+main().catch((error: unknown) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });

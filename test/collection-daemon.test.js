@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { register } from 'tsx/esm/api';
+register();
+const { runDaemon } = await import('../src/collection/daemon.ts');
+const { writePrivateJson } = await import('../src/collection/private-files.ts');
+test('a local-only daemon publishes observations promptly and releases its lock on shutdown', async t => {
+  const root = await mkdtemp('/tmp/opencode/daemon-'); t.after(() => rm(root, { recursive: true, force: true }));
+  const config = `${root}/accounts.json`; const cache = `${root}/cache/usage.json`;
+  await writePrivateJson(config, { accounts: [{ id: 'a', label: 'Claude pessoal', provider: 'claude', configDir: '/profile', collectionMode: 'local-only' }] });
+  const abort = new AbortController(); const daemon = runDaemon(config, cache, abort.signal); t.after(async () => { abort.abort(); await daemon; });
+  const until = async fn => { for (let i = 0; i < 40; i++) { const v = await fn().catch(() => null); if (v) return v; await new Promise(r => setTimeout(r, 100)); } throw Error('deadline'); };
+  const states = await until(async () => JSON.parse(await readFile(`${root}/cache/runtime-state.json`, 'utf8')));
+  const now = new Date().toISOString();
+  await writePrivateJson(`${root}/cache/inputs/${states[0].binding.generation}/s.json`, { binding: states[0].binding, source: 'claude-statusline', observedAt: now, sourceEventAt: now, identityConfidence: 'profile', windows: [{ id: 'five_hour', kind: 'session', label: 'Sessão', usedPercent: 37, remainingPercent: 63 }] });
+  const result = await until(async () => { const s = JSON.parse(await readFile(cache, 'utf8')); return s.accounts[0].windows.length ? s : null; });
+  assert.equal(result.accounts[0].windows[0].usedPercent, 37);
+  assert.equal(result.accounts[0].collection.identityConfidence, 'profile');
+  abort.abort(); await daemon;
+  const second = new AbortController(); const again = runDaemon(config, cache, second.signal); setTimeout(() => second.abort(), 200); await again;
+});
