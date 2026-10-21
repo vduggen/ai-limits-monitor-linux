@@ -194,7 +194,7 @@ export function formatReset(resetsAt, nowMs = Date.now()) {
   return `${dateText} (em ${countdown})`;
 }
 
-function formatSnapshotAge(ageMs) {
+export function formatSnapshotAge(ageMs) {
   if (!Number.isFinite(ageMs)) return "idade desconhecida";
 
   const elapsedSeconds = Math.floor(Math.max(0, ageMs) / 1000);

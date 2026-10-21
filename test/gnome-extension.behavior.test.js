@@ -73,6 +73,7 @@ function makeHarness() {
   const removedSources = [];
   const subprocesses = [];
   const notifications = [];
+  const requests = [];
   const monitor = new FileMonitor();
   const cacheDirectory = "/tmp/opencode-ai-limits-test/ai-limits-widget";
   let snapshot = { createdAt: "before-refresh" };
@@ -90,6 +91,8 @@ function makeHarness() {
     set_style(style) {
       this.style = style;
     }
+
+    connect() {}
 
     destroy() {
       this.destroyed = true;
@@ -118,6 +121,7 @@ function makeHarness() {
       return true;
     },
     file_get_contents: () => [true, new TextEncoder().encode(JSON.stringify(snapshot))],
+    uuid_string_random: () => 'cfb74467-4d34-4c12-9187-6b71a1f61111',
   };
   const Gio = {
     FileMonitorFlags: { WATCH_MOVES: 1 },
@@ -157,6 +161,7 @@ function makeHarness() {
     },
   };
   const Main = {
+    uiGroup: {add_child() {}},
     notify: (title, body) => notifications.push({ title, body }),
     panel: { addToStatusArea() {} },
   };
@@ -183,6 +188,9 @@ function makeHarness() {
     "buildMenuView",
     "buildPanelLabels",
     "buildSnapshotView",
+    "Dashboard",
+    "submitRefreshRequest",
+    "readRefreshResult",
     `${executableSource}\nreturn AiLimitsMonitorExtension;`,
   )(
     Gio,
@@ -191,12 +199,21 @@ function makeHarness() {
     Clutter,
     class {},
     Main,
-    {},
+    {Button: class extends Widget { constructor() { super(); this.menu = new Menu(); } }},
     PopupMenu,
     isUsageCacheEvent,
     () => ({ statusText: "Status", emptyText: "Sem dados", groups: [] }),
     () => ({ entries: [] }),
     (contents) => contents === null ? { createdAt: null } : JSON.parse(contents),
+    class {
+      constructor(menu, refresh, configure) {
+        this.refreshItem = new MenuItem('Atualizar agora'); this.refreshItem.connect('activate', refresh); menu.addMenuItem(this.refreshItem);
+        const item = new MenuItem('Configurar…'); item.connect('activate', configure); menu.addMenuItem(item);
+      }
+      update() {} updateTime() {} destroy() {}
+    },
+    (root, request, callback) => requests.push({root, request, callback}),
+    () => Promise.resolve(null),
   );
 
   return {
@@ -204,6 +221,7 @@ function makeHarness() {
     cacheDirectory,
     monitor,
     notifications,
+    requests,
     removedSources,
     setSnapshot(value) {
       snapshot = value;
@@ -235,7 +253,7 @@ function makeEnabledExtension(harness) {
   return extension;
 }
 
-test("manualRefreshActivatesAsyncServiceRestartAndWaitsForNewSnapshot", () => {
+test("manualRefreshSubmitsOnceAndOnlyCorrelatedResultCompletesWithoutRestart", () => {
   const harness = makeHarness();
   const extension = makeEnabledExtension(harness);
   extension._renderMenu();
@@ -244,19 +262,22 @@ test("manualRefreshActivatesAsyncServiceRestartAndWaitsForNewSnapshot", () => {
   refreshItem.activate();
   refreshItem.activate();
 
-  assert.equal(harness.subprocesses.length, 1);
-  assert.deepEqual(harness.subprocesses[0].command, [
-    "systemctl", "--user", "restart", "ai-limits-widget.service",
-  ]);
-  assert.equal(typeof harness.subprocesses[0].completion, "function");
+  assert.equal(harness.subprocesses.length, 0);
+  assert.equal(harness.requests.length, 1);
+  assert.equal(harness.requests[0].request.version, 1);
   assert.equal(refreshItem.sensitive, false);
 
   harness.setSnapshot({ createdAt: "after-refresh" });
   extension._refresh();
+  assert.notEqual(extension._pendingRefresh, null);
+  harness.setSnapshot({createdAt: 'another', refreshResult: {id: 'other', accounts: []}}); extension._refresh();
+  assert.notEqual(extension._pendingRefresh, null);
+  harness.setSnapshot({createdAt: 'another', refreshResult: {id: harness.requests[0].request.id, accounts: [{accountId: 'a', outcome: 'blocked', nextRetryAt: '2026-10-21T13:00:00Z'}]}}); extension._refresh();
 
   assert.equal(extension._pendingRefresh, null);
   assert.equal(extension._refreshItem.sensitive, true);
-  assert.equal(harness.notifications[0].title, "Limites atualizados.");
+  assert.match(harness.notifications[0].title, /processada/);
+  assert.match(harness.notifications[0].body, /Próxima tentativa/);
 });
 
 test("panelRendererAlignsAccountWidgetsUsingClutter", () => {
@@ -271,7 +292,7 @@ test("panelRendererAlignsAccountWidgetsUsingClutter", () => {
   assert.equal(group.children[1].properties.y_align, "center");
 });
 
-test("manualRefreshReportsSubprocessFailureAndTimeout", () => {
+test("manualRefreshReportsPrivateWriteFailureAndTimeout", () => {
   const harness = makeHarness();
   const extension = makeEnabledExtension(harness);
   extension._renderMenu();
@@ -279,7 +300,7 @@ test("manualRefreshReportsSubprocessFailureAndTimeout", () => {
 
   refreshItem.activate();
   assert.equal(harness.sources.get(extension._refreshTimeoutId).duration, 60);
-  harness.subprocesses[0].completion(harness.subprocesses[0], false);
+  harness.requests[0].callback(new Error('Permission denied'));
 
   assert.equal(extension._pendingRefresh, null);
   assert.equal(extension._refreshItem.sensitive, true);
@@ -293,6 +314,15 @@ test("manualRefreshReportsSubprocessFailureAndTimeout", () => {
 
   assert.equal(extension._pendingRefresh, null);
   assert.equal(harness.notifications[1].title, "A atualização está demorando.");
+});
+
+test('fifteenSecondCountdownDoesNotSubmitWorkAndDisableRemovesEverySource', () => {
+  const h = makeHarness(); const e = makeEnabledExtension(h);
+  e.metadata = {name: 'Monitor'}; e.enable();
+  const countdown = h.sources.get(e._countdownId);
+  assert.equal(countdown.duration, 15); countdown.callback();
+  assert.equal(h.requests.length, 0); assert.equal(h.subprocesses.length, 0);
+  e.disable(); assert.equal(h.sources.size, 0);
 });
 
 test("cacheMonitorFiltersAndDebouncesUsageChangesAndCleansUpOnDisable", () => {

@@ -1,0 +1,11 @@
+.ai-limits-dashboard { width: 360px; max-height: 580px; }
+.ai-limits-card { spacing: 7px; padding: 12px 4px; border-bottom: 1px solid rgba(128,128,128,0.35); }
+.ai-limits-title { font-weight: bold; }
+.ai-limits-detail { font-size: 0.85em; opacity: 0.75; }
+.ai-limits-warning { color: #e5a50a; }
+.ai-limits-window { spacing: 4px; }
+.ai-limits-track { height: 6px; border-radius: 3px; background-color: rgba(128,128,128,0.3); }
+.ai-limits-fill { height: 6px; border-radius: 3px; background-color: #3584e4; }
+.ai-limits-warning .ai-limits-fill { background-color: #e5a50a; }
+.ai-limits-critical .ai-limits-fill { background-color: #e01b24; }
+.ai-limits-tooltip { padding: 8px; border-radius: 6px; background-color: rgba(30,30,30,0.95); color: white; }

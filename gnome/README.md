@@ -66,6 +66,7 @@ UUID=ai-limits-monitor@vlduggen
 TARGET="$HOME/.local/share/gnome-shell/extensions/$UUID"
 mkdir -p "$TARGET"
 cp gnome/metadata.json gnome/extension.js gnome/snapshot.js gnome/cache-events.js \
+  gnome/dashboard.js gnome/refresh-request.js gnome/stylesheet.css \
   gnome/claude.svg gnome/codex.svg "$TARGET/"
 cp cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py "$TARGET/"
 ```
@@ -105,6 +106,7 @@ UUID=ai-limits-monitor@vlduggen
 TARGET="$HOME/.local/share/gnome-shell/extensions/$UUID"
 gnome-extensions disable "$UUID"
 cp gnome/metadata.json gnome/extension.js gnome/snapshot.js gnome/cache-events.js \
+  gnome/dashboard.js gnome/refresh-request.js gnome/stylesheet.css \
   gnome/claude.svg gnome/codex.svg "$TARGET/"
 cp cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py "$TARGET/"
 gnome-extensions enable "$UUID"

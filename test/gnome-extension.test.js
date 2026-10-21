@@ -5,6 +5,7 @@ import test from "node:test";
 const metadata = JSON.parse(await readFile(new URL("../gnome/metadata.json", import.meta.url), "utf8"));
 const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 const extensionSource = await readFile(new URL("../gnome/extension.js", import.meta.url), "utf8");
+const dashboardSource = await readFile(new URL("../gnome/dashboard.js", import.meta.url), "utf8");
 
 test("GNOME extension metadata targets GNOME Shell 46 with a stable UUID", () => {
   assert.equal(metadata.uuid, "ai-limits-monitor@vlduggen");
@@ -16,7 +17,7 @@ test("GNOME extension metadata targets GNOME Shell 46 with a stable UUID", () =>
 });
 
 test("GNOME menu launches the installed GTK editor asynchronously", () => {
-  assert.match(extensionSource, /new PopupMenu\.PopupMenuItem\('Configurar…'\)/);
+  assert.match(dashboardSource, /new PopupMenu\.PopupMenuItem\('Configurar…'\)/);
   assert.match(extensionSource, /this\.dir\.get_child\('configure\.py'\)/);
   assert.match(extensionSource, /Gio\.Subprocess\.new\(/);
   assert.match(extensionSource, /wait_check_async\(/);
@@ -24,7 +25,7 @@ test("GNOME menu launches the installed GTK editor asynchronously", () => {
 });
 
 test("GNOME menu renders an explicit no-limits message for empty accounts", () => {
-  assert.match(extensionSource, /if \(account\.noLimits\)/);
+  assert.match(dashboardSource, /view\.noLimits/);
 });
 
 test("GNOME panel renders per-account provider icons and installs their assets", async () => {
@@ -50,18 +51,12 @@ test("GNOME panel renders per-account provider icons and installs their assets",
 });
 
 test("GNOME menu exposes asynchronous manual refresh", () => {
-  assert.match(extensionSource, /new PopupMenu\.PopupMenuItem\('Atualizar agora'\)/);
-  assert.match(extensionSource, /activate', \(\) => this\._requestRefresh\(\)/);
-  assert.match(
-    extensionSource,
-    /\['systemctl', '--user', 'restart', 'ai-limits-widget\.service'\]/,
-  );
-  assert.match(extensionSource, /wait_check_async\(/);
-  assert.match(extensionSource, /if \(!subprocess\.wait_check_finish\(result\)\)/);
+  assert.match(dashboardSource, /new PopupMenu\.PopupMenuItem\('Atualizar agora'\)/);
+  assert.match(extensionSource, /submitRefreshRequest\(CACHE_DIRECTORY/);
+  assert.doesNotMatch(extensionSource, /systemctl/);
   assert.match(extensionSource, /REFRESH_TIMEOUT_SECONDS = 60/);
   assert.match(extensionSource, /if \(!this\._enabled \|\| this\._pendingRefresh\)/);
-  assert.match(extensionSource, /previousCreatedAt: this\._snapshot\?\.createdAt \?\? null/);
-  assert.match(extensionSource, /snapshot\.createdAt === this\._pendingRefresh\.previousCreatedAt/);
+  assert.match(extensionSource, /snapshot\.refreshResult\?\.id !== this\._pendingRefresh\.id/);
   assert.match(extensionSource, /Main\.notify\(/);
 });
 

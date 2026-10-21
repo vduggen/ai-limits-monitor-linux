@@ -10,6 +10,8 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {isUsageCacheEvent} from './cache-events.js';
 import {buildMenuView, buildPanelLabels, buildSnapshotView} from './snapshot.js';
+import {Dashboard} from './dashboard.js';
+import {submitRefreshRequest, readRefreshResult} from './refresh-request.js';
 
 const CACHE_DIRECTORY = GLib.build_filenamev([
     GLib.get_user_cache_dir(),
@@ -27,6 +29,8 @@ export default class AiLimitsMonitorExtension extends Extension {
     enable() {
         this._enabled = true;
         this._timeoutId = 0;
+        this._countdownId = 0;
+        this._dashboard = null;
         this._cacheRefreshId = 0;
         this._monitorRetryId = 0;
         this._refreshTimeoutId = 0;
@@ -60,11 +64,18 @@ export default class AiLimitsMonitorExtension extends Extension {
                 return GLib.SOURCE_CONTINUE;
             },
         );
+        this._countdownId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 15, () => {
+            if (!this._enabled)
+                return GLib.SOURCE_REMOVE;
+            this._dashboard?.updateTime(Date.now());
+            return GLib.SOURCE_CONTINUE;
+        });
     }
 
     disable() {
         this._enabled = false;
         this._removeSource('_timeoutId');
+        this._removeSource('_countdownId');
         this._removeSource('_cacheRefreshId');
         this._removeSource('_monitorRetryId');
         this._clearPendingRefresh();
@@ -75,6 +86,8 @@ export default class AiLimitsMonitorExtension extends Extension {
         this._cacheMonitor = null;
         this._cacheMonitorId = 0;
 
+        this._dashboard?.destroy();
+        this._dashboard = null;
         this._indicator?.destroy();
         this._indicator = null;
         this._panelBox = null;
@@ -161,12 +174,19 @@ export default class AiLimitsMonitorExtension extends Extension {
 
     _finishPendingRefresh(snapshot) {
         if (!this._pendingRefresh
-            || !snapshot.createdAt
-            || snapshot.createdAt === this._pendingRefresh.previousCreatedAt)
+            || snapshot.refreshResult?.id !== this._pendingRefresh.id)
             return;
 
+        const result = snapshot.refreshResult;
         this._clearPendingRefresh();
-        Main.notify('Limites atualizados.', 'Um novo snapshot foi recebido.');
+        const messages = result.accounts.map(account => {
+            if (account.outcome === 'blocked')
+                return `${account.accountId}: aguardando cooldown. Próxima tentativa: ${new Date(account.nextRetryAt).toLocaleString('pt-BR')}`;
+            if (account.outcome === 'error')
+                return `${account.accountId}: ${account.error ?? 'Falha na consulta.'}`;
+            return `${account.accountId}: ${account.outcome === 'queried' ? 'consulta concluída' : account.outcome === 'observed' ? 'observação recebida' : 'sem nova observação'}.`;
+        });
+        Main.notify('Atualização processada.', messages.join('\n'));
     }
 
     _failPendingRefresh(error, expectedRefresh) {
@@ -182,7 +202,9 @@ export default class AiLimitsMonitorExtension extends Extension {
             return;
 
         const pendingRefresh = {
-            previousCreatedAt: this._snapshot?.createdAt ?? null,
+            version: 1,
+            id: GLib.uuid_string_random(),
+            createdAt: new Date().toISOString(),
         };
         this._pendingRefresh = pendingRefresh;
         this._refreshItem?.setSensitive(false);
@@ -195,36 +217,17 @@ export default class AiLimitsMonitorExtension extends Extension {
                     this._clearPendingRefresh(pendingRefresh);
                     Main.notify(
                         'A atualização está demorando.',
-                        'O serviço não gravou um novo snapshot em 60 segundos.',
+                        'O coletor não confirmou este pedido em 60 segundos.',
                     );
                 }
                 return GLib.SOURCE_REMOVE;
             },
         );
 
-        try {
-            const process = Gio.Subprocess.new(
-                ['systemctl', '--user', 'restart', 'ai-limits-widget.service'],
-                Gio.SubprocessFlags.NONE,
-            );
-            process.wait_check_async(null, (subprocess, result) => {
-                if (!this._enabled || this._pendingRefresh !== pendingRefresh)
-                    return;
-
-                try {
-                    if (!subprocess.wait_check_finish(result)) {
-                        this._failPendingRefresh(
-                            new Error('systemctl terminou sem sucesso.'),
-                            pendingRefresh,
-                        );
-                    }
-                } catch (error) {
-                    this._failPendingRefresh(error, pendingRefresh);
-                }
-            });
-        } catch (error) {
-            this._failPendingRefresh(error, pendingRefresh);
-        }
+        submitRefreshRequest(CACHE_DIRECTORY, pendingRefresh, error => {
+            if (error && this._enabled)
+                this._failPendingRefresh(error, pendingRefresh);
+        });
     }
 
     _readSnapshot() {
@@ -249,6 +252,16 @@ export default class AiLimitsMonitorExtension extends Extension {
         this._renderPanel(panelLabels.entries);
         this._renderMenu();
         this._finishPendingRefresh(snapshot);
+        const pending = this._pendingRefresh;
+        if (pending) {
+            readRefreshResult(CACHE_DIRECTORY, pending.id).then(result => {
+                if (result && this._enabled && this._pendingRefresh === pending)
+                    this._finishPendingRefresh({refreshResult: result});
+            }).catch(error => {
+                if (this._enabled)
+                    this._failPendingRefresh(error, pending);
+            });
+        }
     }
 
     _renderPanel(entries) {
@@ -277,61 +290,42 @@ export default class AiLimitsMonitorExtension extends Extension {
             });
             group.add_child(icon);
             group.add_child(label);
+            this._attachTooltip(group, entry.tooltip ?? entry.text);
             this._panelBox.add_child(group);
             this._panelEntries.push(group);
         }
     }
 
-    _addMenuItem(text, style = null) {
-        const item = new PopupMenu.PopupMenuItem(text, {reactive: false});
-        if (style)
-            item.label.set_style(style);
-        this._indicator.menu.addMenuItem(item);
-        return item;
+    _renderMenu() {
+        const view = buildMenuView(this._snapshot);
+        if (!this._dashboard) {
+            this._dashboard = new Dashboard(this._indicator.menu,
+                () => this._requestRefresh(), () => this._launchConfiguration());
+            this._refreshItem = this._dashboard.refreshItem;
+        }
+        this._dashboard.update(view);
+        this._refreshItem.setSensitive(!this._pendingRefresh);
+        const monitor = Main.layoutManager?.currentMonitor;
+        if (monitor && this._dashboard.scroll) {
+            const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+            this._dashboard.scroll.set_style(`width: ${Math.min(360, Math.max(120, monitor.width / scale - 64))}px; max-height: ${Math.max(120, monitor.height / scale - 180)}px;`);
+        }
     }
 
-    _renderMenu() {
-        const menu = this._indicator.menu;
-        const view = buildMenuView(this._snapshot);
-        menu.removeAll();
-
-        this._addMenuItem(view.statusText, 'opacity: 0.72; font-size: 0.9em;');
-        if (view.emptyText) {
-            this._addMenuItem(view.emptyText, 'opacity: 0.72;');
-        } else {
-            view.groups.forEach((group, groupIndex) => {
-                if (groupIndex > 0)
-                    menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-                this._addMenuItem(group.label, 'font-weight: 700; opacity: 0.85;');
-                group.accounts.forEach((account, accountIndex) => {
-                    if (accountIndex > 0)
-                        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-                    this._addMenuItem(account.title, 'font-weight: 700;');
-                    if (account.metadata)
-                        this._addMenuItem(account.metadata, 'opacity: 0.72; font-size: 0.9em;');
-                    if (account.error)
-                        this._addMenuItem(account.error, 'color: #d96b6b;');
-                    if (account.noLimits)
-                        this._addMenuItem(account.noLimits, 'opacity: 0.72;');
-                    for (const window of account.windows)
-                        this._addMenuItem(window.text);
-                });
-            });
-        }
-
-        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        const refreshItem = new PopupMenu.PopupMenuItem('Atualizar agora');
-        refreshItem.setSensitive(!this._pendingRefresh);
-        refreshItem.connect('activate', () => this._requestRefresh());
-        menu.addMenuItem(refreshItem);
-        this._refreshItem = refreshItem;
-
-        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        const configureItem = new PopupMenu.PopupMenuItem('Configurar…');
-        configureItem.connect('activate', () => this._launchConfiguration());
-        menu.addMenuItem(configureItem);
+    _attachTooltip(actor, text) {
+        actor.accessible_name = text;
+        actor.reactive = true;
+        actor.track_hover = true;
+        const tooltip = new St.Label({text, style_class: 'ai-limits-tooltip', visible: false});
+        Main.uiGroup.add_child(tooltip);
+        actor.connect('notify::hover', () => {
+            tooltip.visible = actor.hover;
+            if (actor.hover) {
+                const [x, y] = actor.get_transformed_position();
+                tooltip.set_position(x, y + actor.height + 8);
+            }
+        });
+        actor.connect('destroy', () => tooltip.destroy());
     }
 
     _launchConfiguration() {
