@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
-import type { AccountConfig, AccountUsage } from "../shared/types.js";
+import type { AccountConfig, AccountUsage, RemoteProbeResult } from "../shared/types.js";
 import { displayModeForAccount, makeWindow } from "../shared/usage.js";
 
 interface ClaudeUsageProvider {
@@ -98,12 +98,14 @@ function subscriptionLabel(value: string | undefined): string | undefined {
 // in get_usage's JSON. Inspect only the relevant stderr lines; never log them.
 export class ClaudeUsageBackoff {
   retryAt = 0;
+  fetchedAt?: string;
   private pending = "";
 
   observe(chunk: string, now = Date.now()): void {
     const lines = (this.pending + chunk).split(/\r?\n/);
     this.pending = (lines.pop() ?? "").slice(-8192);
     for (const line of lines) {
+      if (/fetchUtilization: 200\b/.test(line)) this.fetchedAt = new Date(now).toISOString();
       if (!/fetchUtilization|Failed to load usage data/.test(line) || !/\b429\b/.test(line)) continue;
       const delay = line.match(/not asking again for (\d+)s/);
       if (delay) {
@@ -198,28 +200,19 @@ export function parseClaudeUsage(
   };
 }
 
-export async function readClaudeUsage(
+export async function probeClaudeUsage(
   account: AccountConfig,
   timeoutSeconds: number,
   queryFactory: typeof query = query,
-): Promise<AccountUsage> {
-  const probeKey = JSON.stringify([account.id, account.configDir, account.binaryPath]);
-  const blocked = blockedProbes.get(probeKey);
-  if (blocked && Date.now() < blocked.retryAt) return blocked.usage;
-  blockedProbes.delete(probeKey);
+): Promise<RemoteProbeResult> {
   const checkedAt = new Date().toISOString();
   const abortController = new AbortController();
   const backoff = new ClaudeUsageBackoff();
 
-  const rememberFailure = (usage: AccountUsage): AccountUsage => {
-    if (usage.status === "error") {
-      blockedProbes.set(probeKey, {
-        retryAt: backoff.retryAt > Date.now() ? backoff.retryAt : Date.now() + 5 * 60_000,
-        usage,
-      });
-    }
-    return usage;
-  };
+  const rememberFailure = (usage: AccountUsage): RemoteProbeResult => ({ usage,
+    failure: usage.status === "unsupported" ? "unsupported" : usage.status === "error" ? (backoff.retryAt > Date.now() ? "rate-limited" : "transient") : undefined,
+    retryAt: backoff.retryAt > Date.now() ? new Date(backoff.retryAt).toISOString() : undefined,
+    fetchedAt: usage.status === "ok" ? backoff.fetchedAt : undefined });
 
   try {
     const environment = createClaudeEnvironment(account.configDir);
@@ -282,4 +275,16 @@ export async function readClaudeUsage(
       error: backoff.error() ?? (error instanceof Error ? error.message : String(error)),
     });
   }
+}
+
+// Legacy consumers retain their in-process throttle. The daemon uses the typed
+// probe and owns its persistent policy centrally, never this compatibility map.
+export async function readClaudeUsage(account: AccountConfig, timeoutSeconds: number, queryFactory: typeof query = query): Promise<AccountUsage> {
+  const key = JSON.stringify([account.id, account.configDir, account.binaryPath]);
+  const blocked = blockedProbes.get(key);
+  if (blocked && blocked.retryAt > Date.now()) return blocked.usage;
+  const result = await probeClaudeUsage(account, timeoutSeconds, queryFactory);
+  if (result.usage.status === "error") blockedProbes.set(key, { usage: result.usage, retryAt: result.retryAt ? Date.parse(result.retryAt) : Date.now() + 300000 });
+  else blockedProbes.delete(key);
+  return result.usage;
 }
