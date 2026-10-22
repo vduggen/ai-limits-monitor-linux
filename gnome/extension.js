@@ -300,7 +300,8 @@ export default class AiLimitsMonitorExtension extends Extension {
         const view = buildMenuView(this._snapshot);
         if (!this._dashboard) {
             this._dashboard = new Dashboard(this._indicator.menu,
-                () => this._requestRefresh(), () => this._launchConfiguration());
+                () => this._requestRefresh(), () => this._launchConfiguration(),
+                provider => new Gio.FileIcon({file: this.dir.get_child(`${provider === 'claude' ? 'claude' : 'codex'}.svg`)}));
             this._refreshItem = this._dashboard.refreshItem;
         }
         this._dashboard.update(view);
@@ -308,7 +309,7 @@ export default class AiLimitsMonitorExtension extends Extension {
         const monitor = Main.layoutManager?.currentMonitor;
         if (monitor && this._dashboard.scroll) {
             const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
-            this._dashboard.scroll.set_style(`width: ${Math.min(360, Math.max(120, monitor.width / scale - 64))}px; max-height: ${Math.max(120, monitor.height / scale - 180)}px;`);
+            this._dashboard.scroll.set_style(`width: ${Math.min(480, Math.max(120, monitor.width / scale - 64))}px; max-height: ${Math.max(120, monitor.height / scale - 180)}px;`);
         }
     }
 

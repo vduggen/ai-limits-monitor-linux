@@ -1,11 +1,26 @@
-.ai-limits-dashboard { width: 360px; max-height: 580px; }
-.ai-limits-card { spacing: 7px; padding: 12px 4px; border-bottom: 1px solid rgba(128,128,128,0.35); }
-.ai-limits-title { font-weight: bold; }
-.ai-limits-detail { font-size: 0.85em; opacity: 0.75; }
-.ai-limits-warning { color: #e5a50a; }
-.ai-limits-window { spacing: 4px; }
-.ai-limits-track { height: 6px; border-radius: 3px; background-color: rgba(128,128,128,0.3); }
-.ai-limits-fill { height: 6px; border-radius: 3px; background-color: #3584e4; }
-.ai-limits-warning .ai-limits-fill { background-color: #e5a50a; }
-.ai-limits-critical .ai-limits-fill { background-color: #e01b24; }
+/* Native St CSS: scoped utilities and compact hierarchy, no web runtime. */
+.ai-limits-dashboard { width: 480px; max-height: 720px; }
+.ai-limits-dashboard-title { font-size: 1.15em; font-weight: 700; padding: 4px 4px 8px; }
+.ai-limits-card { spacing: 8px; margin-top: 12px; padding: 14px; border-radius: 14px; background-color: rgba(128,128,128,0.08); border: 1px solid rgba(128,128,128,0.18); }
+.ai-limits-card-header { spacing: 9px; padding-bottom: 6px; }
+.ai-limits-provider-logo { padding: 3px; }
+.ai-limits-title { font-weight: 700; padding-top: 3px; }
+.ai-limits-mode { font-size: 0.75em; opacity: 0.65; padding-top: 5px; }
+.ai-limits-windows { spacing: 12px; }
+.ai-limits-window { spacing: 5px; }
+.ai-limits-window-heading { spacing: 12px; }
+.ai-limits-window-name { font-size: 0.92em; }
+.ai-limits-percent { font-weight: 700; font-size: 1.05em; }
+.ai-limits-window-time { font-size: 0.8em; opacity: 0.7; }
+.ai-limits-detail { font-size: 0.8em; opacity: 0.7; }
+.ai-limits-details { spacing: 8px; padding-top: 8px; border-top: 1px solid rgba(128,128,128,0.2); }
+.ai-limits-details-button { font-size: 0.8em; text-align: left; padding: 5px 0; border-radius: 5px; color: inherit; }
+.ai-limits-details-button:hover, .ai-limits-details-button:focus { background-color: rgba(128,128,128,0.16); }
+.ai-limits-alert { font-size: 0.85em; color: #d99b26; padding-top: 3px; }
+.ai-limits-track { height: 4px; border-radius: 2px; background-color: rgba(128,128,128,0.22); }
+.ai-limits-fill { height: 4px; border-radius: 2px; background-color: #49ad83; }
+.ai-limits-warning .ai-limits-fill { background-color: #d99b26; }
+.ai-limits-critical .ai-limits-fill { background-color: #e06161; }
+.ai-limits-text-warning { color: #d99b26; }
+.ai-limits-text-critical { color: #e06161; }
 .ai-limits-tooltip { padding: 8px; border-radius: 6px; background-color: rgba(30,30,30,0.95); color: white; }

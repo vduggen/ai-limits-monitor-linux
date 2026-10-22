@@ -28,6 +28,16 @@ test('cards render independent session and weekly bars, source, age and retry wa
   card.updateTime(now + 3600000); assert.match(textTree(card.actor), /aguardando confirmação/);
   card.destroy(); assert.equal(session.track.signals.size, 0);
 });
+test('reset calendar labels today as Hoje and keeps the full date on other days', () => {
+  const today = new AccountCard(view().groups[0].accounts[0], () => now);
+  assert.match(today.windows.get('s').calendar.text, /^Hoje às \d{2}:\d{2}$/);
+  today.destroy();
+  const later = {...account, windows: [{...account.windows[0], resetsAt: new Date(now + 30 * 3600000).toISOString()}]};
+  const card = new AccountCard(view([later]).groups[0].accounts[0], () => now);
+  assert.doesNotMatch(card.windows.get('s').calendar.text, /Hoje/);
+  assert.match(card.windows.get('s').calendar.text, /^\d{2}\/\d{2}\/\d{4} · .+ às \d{2}:\d{2}$/);
+  card.destroy();
+});
 test('dashboard reconciles by identity without replacing focused footer, scroll or surviving cards', () => {
   const menu = { items: [], addMenuItem(item) { this.items.push(item); } };
   const dashboard = new Dashboard(menu, () => {}, () => {});
@@ -46,6 +56,26 @@ test('dashboard reconciles by identity without replacing focused footer, scroll 
 test('future timestamps never become an observed-current label during countdown updates', () => {
   const a={...account,windows:[{...account.windows[0],observedAt:'2026-10-22T12:00:00Z'}]};
   const card=new AccountCard(view([a]).groups[0].accounts[0],()=>now);
-  assert.match(card.windows.get('s').time.text,/Último conhecido/);
-  card.updateTime(now+15000);assert.match(card.windows.get('s').time.text,/Último conhecido/);card.destroy();
+  assert.match(card.windows.get('s').time.text,/último conhecido/i);
+  card.updateTime(now+15000);assert.match(card.windows.get('s').time.text,/último conhecido/i);card.destroy();
+});
+
+test('compact card keeps collection details collapsed and preserves disclosure while quota updates', () => {
+  const card = new AccountCard(view().groups[0].accounts[0], () => now);
+  assert.equal(card.details.visible, false);
+  assert.equal(card.mode.text, '% restante');
+  assert.equal(card.windows.get('s').percent.text, '63%');
+  assert.match(card.windows.get('s').time.text, /Renova em 1h 0min/);
+  assert.match(card.windows.get('s').calendar.text, /^Hoje às /);
+  assert.equal(card.windows.get('w').calendar.visible, false);
+  assert.equal(card.windows.get('s').detail.parent, card.details);
+  card.detailsButton.emit('clicked');
+  assert.equal(card.details.visible, true);
+  card.update(view([{...account,displayMode:'used'}]).groups[0].accounts[0]);
+  assert.equal(card.details.visible, true);
+  assert.equal(card.mode.text, '% usado');
+  assert.equal(card.windows.get('s').percent.text, '37%');
+  assert.match(card.metadata.text, /429/);
+  card.detailsButton.emit('clicked'); assert.equal(card.details.visible, false);
+  card.destroy();
 });

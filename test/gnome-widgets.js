@@ -10,10 +10,11 @@ export class Widget {
   emit(signal) { for (const s of this.signals.values()) if (s.signal === signal) s.cb(this); }
   set_style(style) { this.style = style; }
   set_width(width) { this.width = width; }
+  get_stage() { return this.parent ? {} : null; }
   setSensitive(value) { this.sensitive = value; }
   destroy() { this.destroyed = true; this.signals.clear(); [...this.children].forEach(c => c.destroy()); if (this.parent) this.parent.children.splice(this.parent.children.indexOf(this), 1); }
 }
-export const St = { BoxLayout: Widget, Widget, Label: Widget, ScrollView: Widget };
+export const St = { BoxLayout: Widget, Widget, Label: Widget, ScrollView: Widget, Button: Widget, Icon: Widget };
 class Item extends Widget { constructor(text, props = {}) { super(props); this.text = text; this.label = new Widget({text}); } }
 export const PopupMenu = { PopupBaseMenuItem: Widget, PopupMenuItem: Item, PopupSeparatorMenuItem: Widget };
 export function textTree(actor) { return [actor.text ?? '', actor.accessible_name ?? '', ...actor.children.map(textTree)].join(' '); }
