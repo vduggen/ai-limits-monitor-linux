@@ -15,12 +15,12 @@ export class AccountCard {
         this.actor = new St.BoxLayout({vertical: true, style_class: 'ai-limits-card', x_expand: true});
         this.header = new St.BoxLayout({style_class: 'ai-limits-card-header', x_expand: true});
         this.actor.add_child(this.header);
-        this.badge = new St.Icon({icon_size: 24, style_class: 'ai-limits-provider-logo', x_expand: false});
+        this.badge = new St.Icon({icon_size: 20, style_class: 'ai-limits-provider-logo', x_expand: false});
         this.header.add_child(this.badge);
         this.title = label(this.header, 'ai-limits-title');
         this.mode = label(this.header, 'ai-limits-mode');
         this.mode.x_expand = false;
-        this.windowBox = new St.BoxLayout({vertical: true, style_class: 'ai-limits-windows', x_expand: true});
+        this.windowBox = new St.BoxLayout({vertical: false, style_class: 'ai-limits-windows', x_expand: true});
         this.actor.add_child(this.windowBox);
         this.warning = label(this.actor, 'ai-limits-alert');
         this.retry = label(this.actor, 'ai-limits-detail');
@@ -119,9 +119,12 @@ export class AccountCard {
                 const sameDay = date.getFullYear() === today.getFullYear() &&
                     date.getMonth() === today.getMonth() && date.getDate() === today.getDate();
                 const weekday = date.toLocaleDateString('pt-BR', {weekday: 'long'});
-                const day = date.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit', year: 'numeric'});
+                const day = date.toLocaleDateString('pt-BR', {
+                    day: '2-digit', month: '2-digit',
+                    ...(date.getFullYear() === today.getFullYear() ? {} : {year: '2-digit'}),
+                });
                 const time = date.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
-                row.calendar.text = sameDay ? `Hoje às ${time}` : `${day} · ${weekday} às ${time}`;
+                row.calendar.text = sameDay ? `Hoje às ${time}` : `${weekday}, ${day} às ${time}`;
             } else {
                 row.calendar.text = '';
             }

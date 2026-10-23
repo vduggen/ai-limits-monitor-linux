@@ -28,14 +28,14 @@ test('cards render independent session and weekly bars, source, age and retry wa
   card.updateTime(now + 3600000); assert.match(textTree(card.actor), /aguardando confirmação/);
   card.destroy(); assert.equal(session.track.signals.size, 0);
 });
-test('reset calendar labels today as Hoje and keeps the full date on other days', () => {
+test('reset calendar labels today as Hoje and keeps the date on other days', () => {
   const today = new AccountCard(view().groups[0].accounts[0], () => now);
   assert.match(today.windows.get('s').calendar.text, /^Hoje às \d{2}:\d{2}$/);
   today.destroy();
   const later = {...account, windows: [{...account.windows[0], resetsAt: new Date(now + 30 * 3600000).toISOString()}]};
   const card = new AccountCard(view([later]).groups[0].accounts[0], () => now);
   assert.doesNotMatch(card.windows.get('s').calendar.text, /Hoje/);
-  assert.match(card.windows.get('s').calendar.text, /^\d{2}\/\d{2}\/\d{4} · .+ às \d{2}:\d{2}$/);
+  assert.match(card.windows.get('s').calendar.text, /^.+?, \d{2}\/\d{2}(?:\/\d{2})? às \d{2}:\d{2}$/);
   card.destroy();
 });
 test('dashboard reconciles by identity without replacing focused footer, scroll or surviving cards', () => {
@@ -63,6 +63,8 @@ test('future timestamps never become an observed-current label during countdown 
 test('compact card keeps collection details collapsed and preserves disclosure while quota updates', () => {
   const card = new AccountCard(view().groups[0].accounts[0], () => now);
   assert.equal(card.details.visible, false);
+  assert.equal(card.windowBox.vertical, false);
+  assert.equal(card.badge.icon_size, 20);
   assert.equal(card.mode.text, '% restante');
   assert.equal(card.windows.get('s').percent.text, '63%');
   assert.match(card.windows.get('s').time.text, /Renova em 1h 0min/);
