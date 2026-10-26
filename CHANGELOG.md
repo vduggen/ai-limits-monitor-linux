@@ -5,6 +5,8 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
 
 ## Unreleased
 
+## Cinnamon 0.2.1 — 2026-10-26
+
 ### Cinnamon
 
 - Aproxima o painel e o menu do GNOME: ícones de 18 px alinhados ao centro,
