@@ -6,6 +6,12 @@ import vm from "node:vm";
 
 const appletSource = await readFile(new URL("../cinnamon/applet.js", import.meta.url), "utf8");
 const snapshotSource = await readFile(new URL("../shared/snapshot.js", import.meta.url), "utf8");
+const cinnamonSettingsSchema = JSON.parse(
+  await readFile(new URL("../cinnamon/settings-schema.json", import.meta.url), "utf8"),
+);
+const cinnamonMetadata = JSON.parse(
+  await readFile(new URL("../cinnamon/metadata.json", import.meta.url), "utf8"),
+);
 
 function makeHarness(initialSnapshot) {
   let nextSourceId = 1;
@@ -14,6 +20,9 @@ function makeHarness(initialSnapshot) {
   const subprocesses = [];
   const notifications = [];
   const launchedCommands = [];
+  const hotkeyRegistrations = [];
+  const removedHotkeys = [];
+  const hotkeys = new Map();
   const monitor = {
     connect(signal, callback) {
       assert.equal(signal, "changed");
@@ -39,10 +48,39 @@ function makeHarness(initialSnapshot) {
     constructor(properties = {}) {
       this.properties = properties;
       this.children = [];
+      this.reactive = properties.reactive;
     }
 
-    add(child) {
+    add(child, options) {
       this.children.push(child);
+      if (options) child.layoutOptions = options;
+    }
+
+    set_child(child) {
+      this.children = [child];
+    }
+
+    set_size(width, height) {
+      this.size = [width, height];
+    }
+
+    connect(signal, callback) {
+      this.handlers = this.handlers || new Map();
+      this.handlers.set(signal, callback);
+    }
+
+    emit(signal) {
+      return this.handlers?.get(signal)?.(this, {});
+    }
+
+    change_style_pseudo_class(name, enabled) {
+      this.pseudoClasses = this.pseudoClasses || new Map();
+      this.pseudoClasses.set(name, enabled);
+    }
+
+    click() {
+      if (this.reactive !== false)
+        this.handlers?.get("clicked")?.();
     }
 
     set_style(style) {
@@ -104,6 +142,22 @@ function makeHarness(initialSnapshot) {
 
     toggle() {
       this.toggled = !this.toggled;
+    }
+  }
+
+  class BaseMenuItem {
+    constructor() {
+      this.isCustomMenuItem = true;
+      this.children = [];
+      this.actor = {
+        styleClasses: [],
+        add_style_class_name(styleClass) { this.styleClasses.push(styleClass); },
+        set_style(style) { this.style = style; },
+      };
+    }
+
+    addActor(child) {
+      this.children.push(child);
     }
   }
 
@@ -172,6 +226,8 @@ function makeHarness(initialSnapshot) {
     Applet: class {
       constructor() {
         this.actor = new Widget();
+        this._uuid = "ai-limits-widget@vlduggen";
+        this.instance_id = 1;
       }
 
       setAllowedLayout() {}
@@ -182,6 +238,7 @@ function makeHarness(initialSnapshot) {
   };
   const PopupMenu = {
     PopupMenuItem: MenuItem,
+    PopupBaseMenuItem: BaseMenuItem,
     PopupMenuManager: class {
       constructor(applet) {
         this.applet = applet;
@@ -191,36 +248,91 @@ function makeHarness(initialSnapshot) {
     },
     PopupSeparatorMenuItem: class {},
   };
-  const Settings = { AppletSettings: class {} };
+  const Settings = { AppletSettings: class {
+    constructor(applet) {
+      this.applet = applet;
+      this.bindings = new Map();
+      this.values = {
+        "open-menu-hotkey": cinnamonSettingsSchema["open-menu-hotkey"].default,
+      };
+    }
+
+    bind(key, property, callback) {
+      this.applet[property] = this.values[key] ?? cinnamonSettingsSchema[key].default;
+      this.bindings.set(key, { property, callback });
+    }
+
+    set(key, value) {
+      this.values[key] = value;
+      const binding = this.bindings.get(key);
+      this.applet[binding.property] = value;
+      binding.callback?.call(this.applet, value);
+    }
+
+    finalize() {
+      this.finalized = true;
+    }
+  } };
+  const Tooltips = { Tooltip: class {
+    constructor(actor, text) { this.actor = actor; this.text = text; }
+    destroy() { this.destroyed = true; }
+  } };
   const Util = { spawn: (command) => launchedCommands.push(command) };
-  const Main = { notify: (title, body) => notifications.push({ title, body }) };
+  const Main = {
+    notify: (title, body) => notifications.push({ title, body }),
+    keybindingManager: {
+      addXletHotKey(applet, name, accelerator, callback) {
+        for (const [key, binding] of hotkeys) {
+          if (binding.applet === applet && binding.name === name)
+            hotkeys.delete(key);
+        }
+        hotkeyRegistrations.push({ applet, name, accelerator });
+        if (!accelerator) return false;
+        hotkeys.set(name, { applet, name, accelerator, callback });
+        return true;
+      },
+      removeXletHotKey(applet, name) {
+        removedHotkeys.push({ applet, name });
+        const binding = hotkeys.get(name);
+        if (binding?.applet === applet)
+          hotkeys.delete(name);
+      },
+    },
+  };
   const St = {
     BoxLayout: Widget,
     Icon: Widget,
     Label: Widget,
-    IconType: { FULLCOLOR: 1 },
+    Button: Widget,
+    Widget,
+    DrawingArea: Widget,
+    IconType: { FULLCOLOR: 1, SYMBOLIC: 2 },
     Align: { MIDDLE: "middle", END: "end" },
   };
   const ByteArray = { toString: (bytes) => new TextDecoder().decode(bytes) };
 
   const sourceWithoutImports = appletSource.replace(/^const \w+ = imports\..*;\n/gm, "");
   const AiLimitsApplet = new Function(
-    "Applet", "PopupMenu", "Settings", "Util", "Main", "GLib", "Gio", "St", "ByteArray",
+    "Applet", "PopupMenu", "Settings", "Tooltips", "Util", "Main", "GLib", "Gio", "St", "ByteArray",
     `${sourceWithoutImports}\nreturn AiLimitsApplet;`,
-  )(Applet, PopupMenu, Settings, Util, Main, GLib, Gio, St, ByteArray);
+  )(Applet, PopupMenu, Settings, Tooltips, Util, Main, GLib, Gio, St, ByteArray);
   const snapshotContext = {};
   vm.runInNewContext(snapshotSource, snapshotContext);
 
   return {
     AiLimitsApplet,
     cacheDirectory,
+    hotkeyRegistrations,
+    hotkeys,
     launchedCommands,
     monitor,
     notifications,
+    removedHotkeys,
     removedSources,
     sources,
     subprocesses,
     schedule,
+    setAppletSetting(applet, key, value) { applet.settings.set(key, value); },
     setPanelIconSize(value) { panelIconSize = value; },
     setSnapshot(value) { snapshot = value; },
     snapshotModel: snapshotContext.AiLimitsSnapshot,
@@ -228,6 +340,7 @@ function makeHarness(initialSnapshot) {
 }
 
 function makeSnapshot(createdAt = new Date().toISOString()) {
+  const resetsAt = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
   return {
     version: 1,
     createdAt,
@@ -238,12 +351,16 @@ function makeSnapshot(createdAt = new Date().toISOString()) {
         provider: "claude",
         status: "ok",
         displayMode: "remaining",
+        plan: "Pro",
+        email: "claude@example.test",
         windows: [{
           id: "session",
           kind: "session",
           label: "Sessão",
           usedPercent: 40,
           remainingPercent: 60,
+          resetsAt,
+          windowDurationMins: 5 * 60,
         }],
       },
       {
@@ -252,6 +369,7 @@ function makeSnapshot(createdAt = new Date().toISOString()) {
         provider: "codex",
         status: "error",
         displayMode: "used",
+        plan: "Plus",
         error: "Rate limit; tente novamente mais tarde.",
         windows: [],
       },
@@ -269,22 +387,113 @@ function createApplet(harness) {
   );
 }
 
+function collectMenuTexts(items) {
+  const texts = [];
+  const visit = (node) => {
+    if (typeof node.text === "string") texts.push(node.text);
+    if (typeof node.properties?.text === "string") texts.push(node.properties.text);
+    for (const child of node.children || []) visit(child);
+  };
+  items.forEach(visit);
+  return texts;
+}
+
+function collectMenuWidgets(items) {
+  const widgets = [];
+  const visit = (node) => {
+    widgets.push(node);
+    for (const child of node.children || []) visit(child);
+  };
+  items.forEach(visit);
+  return widgets;
+}
+
+function findHeaderAction(applet, accessibleName) {
+  return collectMenuWidgets(applet.menu.items).find((widget) =>
+    widget.properties?.style_class === "ai-limits-header-action"
+    && widget.properties.accessible_name === accessibleName);
+}
+
+function findMenuLabel(applet, text) {
+  return collectMenuWidgets(applet.menu.items).find((widget) => widget.properties?.text === text);
+}
+
+test("Cinnamon menu hotkey defaults to an ABNT2-friendly combo and can be changed", () => {
+  const harness = makeHarness(makeSnapshot());
+  const applet = createApplet(harness);
+  const hotkeySetting = cinnamonSettingsSchema["open-menu-hotkey"];
+
+  assert.equal(hotkeySetting.type, "keybinding");
+  assert.equal(hotkeySetting.default, "<Super><Alt>a");
+  assert.ok(cinnamonSettingsSchema.layout.main.sections.includes("keyboard"));
+  assert.equal(cinnamonMetadata["external-configuration-app"], undefined);
+
+  const initialBinding = harness.hotkeys.get("open-menu");
+  assert.equal(initialBinding.accelerator, "<Super><Alt>a");
+  initialBinding.callback();
+  assert.equal(applet.menu.toggled, true);
+
+  harness.setAppletSetting(applet, "open-menu-hotkey", "<Control><Alt>m");
+  const changedBinding = harness.hotkeys.get("open-menu");
+  assert.equal(changedBinding.accelerator, "<Control><Alt>m");
+  changedBinding.callback();
+  assert.equal(applet.menu.toggled, false);
+
+  harness.setAppletSetting(applet, "open-menu-hotkey", "");
+  assert.equal(harness.hotkeys.has("open-menu"), false);
+
+  applet.on_applet_removed_from_panel();
+  assert.equal(applet.settings.finalized, true);
+  assert.ok(harness.removedHotkeys.some((binding) => binding.name === "open-menu"));
+});
+
 test("Cinnamon panel and menu show provider errors and use the GNOME refresh actions", () => {
   const harness = makeHarness(makeSnapshot());
   const applet = createApplet(harness);
+  const initialTooltips = [...applet.headerTooltips];
 
   assert.deepEqual(applet.panelEntries.map(({ entry }) => entry.text), [
     "CP 60%",
     "CT --% (erro)",
   ]);
-  assert.ok(applet.menu.items.some((item) => item.text === "Rate limit; tente novamente mais tarde."));
-  assert.ok(applet.menu.items.some((item) => item.text === "Atualizar agora"));
-  assert.ok(applet.menu.items.some((item) => item.text === "Configurar…"));
+  assert.ok(collectMenuTexts(applet.menu.items).includes("Rate limit; tente novamente mais tarde."));
+  const refreshButton = findHeaderAction(applet, "Atualizar agora");
+  const configureButton = findHeaderAction(applet, "Configurar…");
+  assert.ok(refreshButton);
+  assert.ok(configureButton);
+  assert.deepEqual(refreshButton.size, [32, 32]);
+  assert.deepEqual(configureButton.size, [32, 32]);
+  const buttonLayout = {
+    x_align: "middle",
+    x_fill: false,
+    y_align: "middle",
+    y_fill: false,
+  };
+  assert.deepEqual(refreshButton.layoutOptions, buttonLayout);
+  assert.deepEqual(configureButton.layoutOptions, buttonLayout);
+  assert.match(refreshButton.style, /min-height: 32px; max-height: 32px/);
+  assert.match(refreshButton.style, /min-width: 32px; max-width: 32px/);
+  assert.match(refreshButton.style, /background-color: transparent/);
+  const refreshIcon = refreshButton.children[0];
+  assert.equal(refreshIcon.style, "color: #cbd2d9;");
+  refreshButton.emit("enter-event");
+  assert.match(refreshButton.style, /background-color: rgba\(128, 128, 128, 0\.32\)/);
+  assert.equal(refreshIcon.style, "color: #ffffff;");
+  refreshButton.emit("leave-event");
+  assert.match(refreshButton.style, /background-color: transparent/);
+  assert.equal(refreshIcon.style, "color: #cbd2d9;");
+  assert.equal(applet.menu.items.some((item) =>
+    item.text === "Atualizar agora" || item.text === "Configurar…"), false);
 
-  applet.menu.items.find((item) => item.text === "Configurar…").activate();
+  configureButton.click();
   assert.deepEqual(harness.launchedCommands, [["python3", "/tmp/test-applet/configure.py"]]);
 
+  applet.refresh();
+  assert.ok(initialTooltips.every((tooltip) => tooltip.destroyed));
+  const currentTooltips = [...applet.headerTooltips];
+
   applet.on_applet_removed_from_panel();
+  assert.ok(currentTooltips.every((tooltip) => tooltip.destroyed));
 });
 
 test("Cinnamon panel uses GNOME spacing, icon size, and centered normal-weight labels", () => {
@@ -303,11 +512,6 @@ test("Cinnamon panel uses GNOME spacing, icon size, and centered normal-weight l
   assert.equal(label.properties.style_class, undefined);
   assert.equal(label.properties.y_align, "middle");
 
-  const accountTitle = applet.menu.items.find((item) => item.text === "Claude pessoal");
-  assert.equal(accountTitle.actor.style, undefined);
-  assert.equal(accountTitle.label.style, "font-weight: 700;");
-  assert.deepEqual(accountTitle.actor.styleClasses, []);
-
   harness.setPanelIconSize(16);
   applet.on_panel_icon_size_changed();
   assert.equal(icon.iconSize, 12);
@@ -315,18 +519,54 @@ test("Cinnamon panel uses GNOME spacing, icon size, and centered normal-weight l
   applet.on_applet_removed_from_panel();
 });
 
+test("Cinnamon menu renders account cards with current limits, reset times, and errors", () => {
+  const harness = makeHarness(makeSnapshot());
+  const applet = createApplet(harness);
+  const texts = collectMenuTexts(applet.menu.items);
+  const widgets = collectMenuWidgets(applet.menu.items);
+  const progressBars = widgets.filter((widget) => widget.properties?.style_class === "ai-limits-progress");
+  const cards = applet.menu.items.filter((item) => item.isCustomMenuItem);
+
+  assert.equal(cards.length, 3); // Header and one card per configured usable account.
+  assert.ok(texts.includes("AI Limits"));
+  assert.ok(texts.includes("Claude"));
+  assert.ok(texts.includes("Codex"));
+  assert.ok(texts.includes("Claude pessoal"));
+  assert.ok(texts.includes("Pro"));
+  assert.ok(texts.includes("Sessão (5 h)"));
+  assert.ok(texts.includes("60% restante"));
+  assert.ok(texts.some((text) => text.startsWith("Redefine em ")));
+  assert.ok(texts.includes("Rate limit; tente novamente mais tarde."));
+  assert.equal(progressBars.length, 1);
+  assert.equal(progressBars[0].fraction, 0.6);
+  assert.match(findMenuLabel(applet, "AI Limits").style, /color: #ffffff/);
+  assert.match(findMenuLabel(applet, "Claude pessoal").style, /color: #f5f6f7/);
+  assert.match(
+    findMenuLabel(applet, "claude@example.test · Exibição: % restante").style,
+    /color: #dce2e8/,
+  );
+  assert.match(
+    findMenuLabel(applet, "Sessão (5 h)").style,
+    /color: #f1f3f5/,
+  );
+  assert.equal(texts.some((text) => /reset available|reset disponível|\bRU\b|\bEN\b/i.test(text)), false);
+
+  applet.on_applet_removed_from_panel();
+});
+
 test("Cinnamon manual refresh is async, waits for a new snapshot, and cleans up its monitor", () => {
   const harness = makeHarness(makeSnapshot("2026-10-26T11:00:00.000Z"));
   const applet = createApplet(harness);
-  const refreshItem = applet.menu.items.find((item) => item.text === "Atualizar agora");
+  const refreshButton = findHeaderAction(applet, "Atualizar agora");
 
-  refreshItem.activate();
-  refreshItem.activate();
+  refreshButton.click();
+  refreshButton.click();
   assert.equal(harness.subprocesses.length, 1);
   assert.deepEqual(harness.subprocesses[0].command, [
     "systemctl", "--user", "restart", "ai-limits-widget.service",
   ]);
-  assert.equal(refreshItem.sensitive, false);
+  assert.equal(refreshButton.reactive, false);
+  assert.equal(refreshButton.children[0].style, "color: #8b9299;");
 
   const targetPath = `${harness.cacheDirectory}/usage.json`;
   harness.monitor.emit(`${harness.cacheDirectory}/other.json`);
@@ -338,6 +578,7 @@ test("Cinnamon manual refresh is async, waits for a new snapshot, and cleans up 
   debounce.callback();
 
   assert.equal(applet.pendingRefresh, null);
+  assert.equal(applet.refreshButton.reactive, true);
   assert.equal(harness.notifications[0].title, "Limites atualizados.");
 
   const pendingRefreshId = applet.timeoutId;
@@ -350,15 +591,15 @@ test("Cinnamon manual refresh is async, waits for a new snapshot, and cleans up 
 test("Cinnamon manual refresh reports service failures and snapshot timeouts", () => {
   const harness = makeHarness(makeSnapshot());
   const applet = createApplet(harness);
-  const refreshItem = applet.menu.items.find((item) => item.text === "Atualizar agora");
+  const refreshButton = findHeaderAction(applet, "Atualizar agora");
 
-  refreshItem.activate();
+  refreshButton.click();
   assert.equal(harness.sources.get(applet.refreshTimeoutId).duration, 60);
   harness.subprocesses[0].completion(harness.subprocesses[0], false);
   assert.equal(applet.pendingRefresh, null);
   assert.equal(harness.notifications[0].title, "Não foi possível atualizar os limites.");
 
-  refreshItem.activate();
+  refreshButton.click();
   const timeout = harness.sources.get(applet.refreshTimeoutId);
   timeout.callback();
   assert.equal(applet.pendingRefresh, null);

@@ -1,6 +1,7 @@
 const Applet = imports.ui.applet;
 const PopupMenu = imports.ui.popupMenu;
 const Settings = imports.ui.settings;
+const Tooltips = imports.ui.tooltips;
 const Util = imports.misc.util;
 const Main = imports.ui.main;
 const GLib = imports.gi.GLib;
@@ -42,6 +43,159 @@ function addStyledItem(menu, text, labelStyle) {
     return item;
 }
 
+function addPopupContent(menu, content) {
+    const item = new PopupMenu.PopupBaseMenuItem({ reactive: false });
+    item.actor.set_style("padding: 0; margin: 4px 8px; background-color: transparent;");
+    item.addActor(content, { span: -1, expand: true });
+    menu.addMenuItem(item);
+    return item;
+}
+
+function updateHeaderActionStyle(button) {
+    const isHighlighted = button.aiLimitsHovered || button.aiLimitsFocused;
+    const background = !button.reactive
+        ? "rgba(128, 128, 128, 0.08)"
+        : isHighlighted
+            ? "rgba(128, 128, 128, 0.32)"
+            : "transparent";
+    const iconColor = !button.reactive
+        ? "#8b9299"
+        : isHighlighted
+            ? "#ffffff"
+            : "#cbd2d9";
+    button.set_style([
+        "min-width: 32px; max-width: 32px;",
+        "min-height: 32px; max-height: 32px;",
+        "padding: 0; border-radius: 8px;",
+        `background-color: ${background};`,
+    ].join(" "));
+    if (button.aiLimitsIcon)
+        button.aiLimitsIcon.set_style(`color: ${iconColor};`);
+}
+
+function makeHeaderAction(iconName, accessibleName, callback) {
+    const button = new St.Button({
+        style_class: "ai-limits-header-action",
+        reactive: true,
+        can_focus: true,
+        track_hover: true,
+        x_expand: false,
+        y_expand: false,
+        y_align: St.Align.MIDDLE,
+        accessible_name: accessibleName,
+    });
+    button.set_size(32, 32);
+    button.aiLimitsHovered = false;
+    button.aiLimitsFocused = false;
+    button.aiLimitsIcon = new St.Icon({
+        icon_name: iconName,
+        icon_type: St.IconType.SYMBOLIC,
+        icon_size: 16,
+        style_class: "popup-menu-icon",
+    });
+    button.set_child(button.aiLimitsIcon);
+    updateHeaderActionStyle(button);
+    button.connect("enter-event", () => {
+        if (button.reactive) button.aiLimitsHovered = true;
+        updateHeaderActionStyle(button);
+        return false;
+    });
+    button.connect("leave-event", () => {
+        button.aiLimitsHovered = false;
+        updateHeaderActionStyle(button);
+        return false;
+    });
+    button.connect("key-focus-in", () => {
+        button.aiLimitsFocused = true;
+        updateHeaderActionStyle(button);
+        return false;
+    });
+    button.connect("key-focus-out", () => {
+        button.aiLimitsFocused = false;
+        updateHeaderActionStyle(button);
+        return false;
+    });
+    button.connect("clicked", callback);
+    button.aiLimitsTooltip = new Tooltips.Tooltip(button, accessibleName);
+    return button;
+}
+
+function makeLabel(text, style, properties = {}) {
+    const label = new St.Label({ text, reactive: false, ...properties });
+    const labelStyle = /(^|;)\s*color\s*:/.test(style || "")
+        ? style
+        : `color: #f1f3f5; ${style || ""}`;
+    label.set_style(labelStyle);
+    if (label.clutter_text) label.clutter_text.line_wrap = true;
+    return label;
+}
+
+function formatDuration(totalMinutes) {
+    const minutes = Math.max(0, Math.ceil(totalMinutes));
+    const days = Math.floor(minutes / (24 * 60));
+    const hours = Math.floor((minutes % (24 * 60)) / 60);
+    const remainingMinutes = minutes % 60;
+    if (days > 0)
+        return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+    if (hours > 0)
+        return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}min` : `${hours}h`;
+    return `${remainingMinutes}min`;
+}
+
+function formatWindowDuration(window) {
+    if (!Number.isFinite(window.windowDurationMins) || window.windowDurationMins <= 0)
+        return "";
+    const minutes = window.windowDurationMins;
+    if (minutes % (7 * 24 * 60) === 0)
+        return `${minutes / (7 * 24 * 60)} sem`;
+    if (minutes % (24 * 60) === 0)
+        return `${minutes / (24 * 60)} d`;
+    if (minutes % 60 === 0)
+        return `${minutes / 60} h`;
+    return `${minutes} min`;
+}
+
+function formatResetLine(resetsAt) {
+    if (typeof resetsAt !== "string" || resetsAt.length === 0)
+        return "Reset não informado";
+    const timestamp = Date.parse(resetsAt);
+    if (!Number.isFinite(timestamp))
+        return "Reset não informado";
+
+    const now = Date.now();
+    const date = new Date(timestamp);
+    const dateText = date.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+    const timeText = date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    return `Redefine em ${formatDuration((timestamp - now) / 60000)} · ${dateText} ${timeText}`;
+}
+
+function makeProgressBar(percent) {
+    const fraction = Math.max(0, Math.min(100, percent)) / 100;
+    const area = new St.DrawingArea({ style_class: "ai-limits-progress", x_expand: true });
+    area.set_style("height: 6px; border-radius: 3px; background-color: rgba(128, 128, 128, 0.24);");
+    area.fraction = fraction;
+    area.connect("repaint", (drawingArea) => {
+        const context = drawingArea.get_context();
+        const [width, height] = drawingArea.get_surface_size();
+        const fillWidth = width * fraction;
+        if (fillWidth > 0 && height > 0) {
+            context.setSourceRGBA(0.30, 0.82, 0.58, 1);
+            if (fillWidth <= height) {
+                context.arc(fillWidth / 2, height / 2, fillWidth / 2, 0, 2 * Math.PI);
+            } else {
+                const radius = height / 2;
+                context.arc(radius, radius, radius, Math.PI / 2, 3 * Math.PI / 2);
+                context.lineTo(fillWidth - radius, 0);
+                context.arc(fillWidth - radius, radius, radius, -Math.PI / 2, Math.PI / 2);
+                context.closePath();
+            }
+            context.fill();
+        }
+        context.$dispose();
+    });
+    return area;
+}
+
 class AiLimitsApplet extends Applet.Applet {
     constructor(metadata, orientation, panelHeight, instanceId, snapshotModel) {
         super(orientation, panelHeight, instanceId);
@@ -56,7 +210,8 @@ class AiLimitsApplet extends Applet.Applet {
         this.monitorRetryId = 0;
         this.refreshTimeoutId = 0;
         this.pendingRefresh = null;
-        this.refreshItem = null;
+        this.refreshButton = null;
+        this.headerTooltips = [];
         this.snapshotView = this.snapshotModel.buildSnapshotView(null);
 
         // Cinnamon's applet settings window reads the per-instance JSON file
@@ -67,6 +222,11 @@ class AiLimitsApplet extends Applet.Applet {
             this,
             metadata.uuid || "ai-limits-widget@vlduggen",
             instanceId,
+        );
+        this.settings.bind(
+            "open-menu-hotkey",
+            "openMenuHotkey",
+            this.onOpenMenuHotkeyChanged,
         );
 
         this.content = new St.BoxLayout({
@@ -85,6 +245,7 @@ class AiLimitsApplet extends Applet.Applet {
         this.menuManager = new PopupMenu.PopupMenuManager(this);
         this.menu = new Applet.AppletPopupMenu(this, orientation);
         this.menuManager.addMenu(this.menu);
+        this.onOpenMenuHotkeyChanged();
         this.updateIconSize();
         this.monitorCache();
         this.refresh();
@@ -98,10 +259,17 @@ class AiLimitsApplet extends Applet.Applet {
         });
     }
 
-    configureApplet() {
-        // The base Cinnamon implementation always launches xlet-settings.
-        // Use the same graphical editor as Cinnamon Settings instead.
+    configureAccounts() {
         Util.spawn(["python3", this.configurationApp]);
+    }
+
+    onOpenMenuHotkeyChanged() {
+        Main.keybindingManager.addXletHotKey(
+            this,
+            "open-menu",
+            this.openMenuHotkey,
+            () => this.on_applet_clicked(),
+        );
     }
 
     addProvider(provider, directory, filename) {
@@ -174,79 +342,148 @@ class AiLimitsApplet extends Applet.Applet {
     }
 
     renderMenu(view) {
+        this.clearHeaderTooltips();
         this.menu.removeAll();
-        addStyledItem(
-            this.menu,
-            view.statusText,
-            "opacity: 0.72; font-size: 0.9em;",
+
+        const header = new St.BoxLayout({ vertical: false, x_expand: true });
+        header.set_style("spacing: 12px; padding: 4px 8px 8px; max-width: 440px;");
+        const heading = new St.BoxLayout({ vertical: true, x_expand: true });
+        heading.set_style("spacing: 3px;");
+        heading.add(makeLabel("AI Limits", "color: #ffffff; font-size: 1.12em; font-weight: 700;"));
+        heading.add(makeLabel(view.statusText, "color: #dce1e7; font-size: 0.9em; max-width: 350px;"));
+        header.add(heading);
+
+        const actions = new St.BoxLayout({ vertical: false });
+        actions.set_style("spacing: 5px;");
+        const configureButton = makeHeaderAction(
+            "preferences-system-symbolic",
+            "Configurar…",
+            () => this.configureAccounts(),
         );
+        actions.add(configureButton, {
+            x_align: St.Align.MIDDLE,
+            x_fill: false,
+            y_align: St.Align.MIDDLE,
+            y_fill: false,
+        });
+        this.refreshButton = makeHeaderAction(
+            "view-refresh-symbolic",
+            "Atualizar agora",
+            () => this.requestRefresh(),
+        );
+        this.headerTooltips = [configureButton.aiLimitsTooltip, this.refreshButton.aiLimitsTooltip];
+        this.setRefreshButtonSensitive(!this.pendingRefresh);
+        actions.add(this.refreshButton, {
+            x_align: St.Align.MIDDLE,
+            x_fill: false,
+            y_align: St.Align.MIDDLE,
+            y_fill: false,
+        });
+        header.add(actions);
+        addPopupContent(this.menu, header);
 
         if (view.emptyText) {
             addStyledItem(
                 this.menu,
                 view.emptyText,
-                "opacity: 0.72;",
+                "color: #e1e5e9;",
             );
         } else {
-            view.groups.forEach((group, groupIndex) => {
-                if (groupIndex > 0)
-                    this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-                addStyledItem(
-                    this.menu,
-                    group.label,
-                    "font-weight: 700; opacity: 0.85;",
-                );
-                group.accounts.forEach((account, accountIndex) => {
-                    if (accountIndex > 0)
-                        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-                    addStyledItem(
-                        this.menu,
-                        account.title,
-                        "font-weight: 700;",
+            const providerLabels = { claude: "Claude", codex: "Codex" };
+            const providerColors = { claude: "#f47b53", codex: "#10a37f" };
+            this.snapshotView.accounts
+                .filter((account) => account.status !== "unsupported")
+                .forEach((account) => {
+                    this.renderAccountCard(
+                        account,
+                        providerLabels[account.provider],
+                        providerColors[account.provider],
                     );
-                    if (account.metadata) {
-                        addStyledItem(
-                            this.menu,
-                            account.metadata,
-                            "opacity: 0.72; font-size: 0.9em;",
-                        );
-                    }
-                    if (account.error) {
-                        addStyledItem(
-                            this.menu,
-                            account.error,
-                            "color: #d96b6b;",
-                        );
-                    }
-                    if (account.noLimits) {
-                        addStyledItem(
-                            this.menu,
-                            account.noLimits,
-                            "opacity: 0.72;",
-                        );
-                    }
-                    account.windows.forEach((window) => {
-                        addStyledItem(
-                            this.menu,
-                            window.text,
-                            "font-size: 0.95em;",
-                        );
-                    });
-                });
             });
         }
 
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        const refreshItem = new PopupMenu.PopupMenuItem("Atualizar agora");
-        refreshItem.setSensitive(!this.pendingRefresh);
-        refreshItem.connect("activate", () => this.requestRefresh());
-        this.menu.addMenuItem(refreshItem);
-        this.refreshItem = refreshItem;
+    }
 
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        const configureItem = new PopupMenu.PopupMenuItem("Configurar…");
-        configureItem.connect("activate", () => this.configureApplet());
-        this.menu.addMenuItem(configureItem);
+    clearHeaderTooltips() {
+        this.headerTooltips.forEach((tooltip) => tooltip.destroy());
+        this.headerTooltips = [];
+    }
+
+    setRefreshButtonSensitive(sensitive) {
+        if (!this.refreshButton) return;
+        this.refreshButton.reactive = sensitive;
+        this.refreshButton.can_focus = sensitive;
+        if (!sensitive) {
+            this.refreshButton.aiLimitsHovered = false;
+            this.refreshButton.aiLimitsFocused = false;
+        }
+        this.refreshButton.change_style_pseudo_class("insensitive", !sensitive);
+        updateHeaderActionStyle(this.refreshButton);
+    }
+
+    renderAccountCard(account, providerLabel, providerColor) {
+        const card = new St.BoxLayout({ vertical: true, x_expand: true });
+        card.set_style([
+            "spacing: 9px;",
+            "padding: 12px;",
+            "max-width: 440px;",
+            "border-radius: 14px;",
+            "border: 1px solid rgba(128, 128, 128, 0.24);",
+            "background-color: rgba(128, 128, 128, 0.12);",
+        ].join(" "));
+
+        const heading = new St.BoxLayout({ vertical: false, x_expand: true });
+        heading.set_style("spacing: 8px;");
+        heading.add(makeLabel("●", `color: ${providerColor}; font-size: 14px;`));
+        heading.add(makeLabel(providerLabel, "color: #f7f8fa; font-size: 1.05em; font-weight: 700;"));
+        heading.add(new St.Widget({ x_expand: true }));
+        if (account.plan) {
+            heading.add(makeLabel(
+                account.plan,
+                "color: #f1f3f5; font-size: 0.85em; padding: 3px 8px; border-radius: 12px; background-color: rgba(128, 128, 128, 0.24);",
+            ));
+        }
+        card.add(heading);
+
+        card.add(makeLabel(account.label, "color: #f5f6f7; font-size: 0.92em; font-weight: 600;"));
+        const displayMode = account.displayMode === "used" ? "used" : "remaining";
+        const metadata = [
+            account.email,
+            "Exibição: " + (displayMode === "used" ? "% usado" : "% restante"),
+        ].filter(Boolean).join(" · ");
+        if (metadata)
+            card.add(makeLabel(metadata, "color: #dce2e8; font-size: 0.85em;"));
+
+        if (account.status === "error") {
+            card.add(makeLabel(
+                account.error || "Não foi possível consultar esta conta.",
+                "color: #e97870; font-size: 0.92em; max-width: 410px;",
+            ));
+        } else if (account.windows.length === 0) {
+            card.add(makeLabel("Esta conta não reportou limites.", "color: #e1e5e9; font-size: 0.9em;"));
+        } else {
+            account.windows.forEach((window) => {
+                const percent = displayMode === "used" ? window.usedPercent : window.remainingPercent;
+                const duration = formatWindowDuration(window);
+                const windowTitle = duration ? `${window.label} (${duration})` : window.label;
+                const row = new St.BoxLayout({ vertical: true, x_expand: true });
+                row.set_style("spacing: 5px; padding-top: 3px;");
+
+                const labels = new St.BoxLayout({ vertical: false, x_expand: true });
+                labels.set_style("spacing: 8px;");
+                labels.add(makeLabel(windowTitle, "color: #f1f3f5; font-size: 0.95em;", { x_expand: true }));
+                labels.add(makeLabel(
+                    `${percent}% ${displayMode === "used" ? "usado" : "restante"}`,
+                    "font-weight: 700; color: #57d69b;",
+                ));
+                row.add(labels);
+                row.add(makeProgressBar(percent));
+                row.add(makeLabel(formatResetLine(window.resetsAt), "color: #dce1e7; font-size: 0.82em;"));
+                card.add(row);
+            });
+        }
+
+        addPopupContent(this.menu, card);
     }
 
     monitorCache() {
@@ -305,8 +542,7 @@ class AiLimitsApplet extends Applet.Applet {
         if (expectedRefresh && this.pendingRefresh !== expectedRefresh) return;
         this.removeSource("refreshTimeoutId");
         this.pendingRefresh = null;
-        if (this.refreshItem)
-            this.refreshItem.setSensitive(true);
+        this.setRefreshButtonSensitive(true);
     }
 
     finishPendingRefresh(snapshotView) {
@@ -335,8 +571,7 @@ class AiLimitsApplet extends Applet.Applet {
             previousCreatedAt: this.snapshotView.createdAt,
         };
         this.pendingRefresh = pendingRefresh;
-        if (this.refreshItem)
-            this.refreshItem.setSensitive(false);
+        this.setRefreshButtonSensitive(false);
         this.refreshTimeoutId = GLib.timeout_add_seconds(
             GLib.PRIORITY_DEFAULT,
             REFRESH_TIMEOUT_SECONDS,
@@ -379,6 +614,9 @@ class AiLimitsApplet extends Applet.Applet {
 
     on_applet_removed_from_panel() {
         this.removed = true;
+        this.clearHeaderTooltips();
+        Main.keybindingManager.removeXletHotKey(this, "open-menu");
+        this.settings.finalize();
         this.removeSource("timeoutId");
         this.removeSource("cacheRefreshId");
         this.removeSource("monitorRetryId");

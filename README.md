@@ -19,12 +19,15 @@ com suporte a múltiplas contas e períodos de uso.
 - interfaces sinalizam cache ausente, inválido ou desatualizado; novas gravações
   atualizam o painel sem esperar o intervalo periódico;
 - ação **Atualizar agora** solicita uma nova consulta ao serviço do usuário;
+- atalho global Cinnamon configurável para abrir/fechar o popup (padrão
+  `Super+Alt+A`, sem depender de teclas de pontuação do layout ABNT2);
 - painel com uma entrada por conta utilizável, mostrando o logo, as iniciais da
   conta e os dois principais períodos; o nome completo continua disponível no
   popup detalhado;
 - Cinnamon e GNOME compartilham a validação do snapshot, os indicadores e os
   estados de atualização; só os adaptadores visuais são específicos de cada Shell;
-- popup com contas, planos, e-mails, janelas e horários de reset;
+- popup Cinnamon em cartões por conta, com plano, e-mail, percentuais em barras,
+  janelas, duração e horários de reset;
 - contas sem limites de assinatura são marcadas como `unsupported` e não aparecem
   no popup operacional.
 
@@ -209,8 +212,9 @@ chmod +x "$TARGET/configure.py"
 ```
 
 Depois, abra **Configurações do Sistema → Applets**, procure por **AI Limits Monitor for Linux** e
-adicione-o ao painel. O item **Configurar…** do applet abre o editor gráfico para
-escolher `% restante` ou `% usado` por conta.
+adicione-o ao painel. Use **Configurar…** no menu de contexto do applet para
+editar o atalho de teclado. A engrenagem no popup abre o editor gráfico de contas,
+onde se escolhe `% restante` ou `% usado` por conta.
 
 O UUID e o diretório de instalação do applet são
 `ai-limits-widget@vlduggen`. Se você tinha uma versão anterior instalada, remova
