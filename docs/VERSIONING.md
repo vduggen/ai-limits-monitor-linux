@@ -9,8 +9,8 @@ sem obrigar Cinnamon, GNOME e o serviço a receberem o mesmo número.
 | Componente | Fonte da versão | Formato atual |
 | --- | --- | --- |
 | Serviço e projeto compartilhado | `package.json` → `version` | SemVer (`0.1.0`) |
-| Applet Cinnamon | `cinnamon/metadata.json` → `version` | SemVer (`0.1.0`) |
-| Extensão GNOME | `gnome/metadata.json` → `version` | Inteiro crescente (`1`) |
+| Applet Cinnamon | `cinnamon/metadata.json` → `version` | SemVer (`0.2.0`) |
+| Extensão GNOME | `gnome/metadata.json` → `version` | Inteiro crescente (`2`) |
 
 O GNOME mantém um inteiro no manifesto para compatibilidade com o mecanismo de
 extensões. Não substituir esse campo por uma string SemVer; registre a versão e
