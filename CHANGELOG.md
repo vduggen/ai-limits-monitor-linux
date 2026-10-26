@@ -5,6 +5,12 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
 
 ## Unreleased
 
+### Cinnamon
+
+- Aproxima o painel e o menu do GNOME: ícones de 18 px alinhados ao centro,
+  tipografia sem negrito no indicador e espaçamento/padding controlados pelo tema
+  nativo do Cinnamon.
+
 ## Cinnamon 0.2.0 — 2026-10-26
 
 ### Interfaces compartilhadas

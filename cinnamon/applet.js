@@ -35,10 +35,8 @@ function isUsageCacheEvent(changedPath, otherPath) {
     return changedPath === CACHE_PATH || otherPath === CACHE_PATH;
 }
 
-function addStyledItem(menu, text, actorStyle, labelStyle, styleClass) {
+function addStyledItem(menu, text, labelStyle) {
     const item = new PopupMenu.PopupMenuItem(text, { reactive: false });
-    if (styleClass) item.actor.add_style_class_name(styleClass);
-    if (actorStyle) item.actor.set_style(actorStyle);
     if (labelStyle) item.label.set_style(labelStyle);
     menu.addMenuItem(item);
     return item;
@@ -76,7 +74,8 @@ class AiLimitsApplet extends Applet.Applet {
             reactive: false,
             vertical: false,
         });
-        this.content.set_style("spacing: 8px;");
+        // GNOME's panel-status-menu-box uses 6px spacing between entries.
+        this.content.set_style("spacing: 6px;");
         this.actor.add(this.content);
         this.providers = {};
         this.panelEntries = [];
@@ -129,16 +128,13 @@ class AiLimitsApplet extends Applet.Applet {
                 }),
                 icon_type: St.IconType.FULLCOLOR,
                 icon_size: 18,
-                style_class: "ai-limits-provider-icon",
-                x_align: St.Align.MIDDLE,
+                style_class: "system-status-icon",
                 y_align: St.Align.MIDDLE,
             });
             const label = new St.Label({
                 text: entry.text,
-                style_class: "applet-label",
                 reactive: false,
-                x_align: St.Align.MIDDLE,
-                y_align: St.Align.END,
+                y_align: St.Align.MIDDLE,
             });
 
             group.add(icon);
@@ -152,7 +148,7 @@ class AiLimitsApplet extends Applet.Applet {
 
     updateIconSize() {
         const panelSize = this.getPanelIconSize(St.IconType.FULLCOLOR) || 18;
-        const size = Math.max(12, Math.min(20, panelSize - 4));
+        const size = Math.max(12, Math.min(18, panelSize - 4));
         for (const entry of this.panelEntries) {
             entry.icon.set_icon_size(size);
         }
@@ -182,18 +178,14 @@ class AiLimitsApplet extends Applet.Applet {
         addStyledItem(
             this.menu,
             view.statusText,
-            "padding-top: 7px; padding-bottom: 7px;",
             "opacity: 0.72; font-size: 0.9em;",
-            "ai-limits-updated",
         );
 
         if (view.emptyText) {
             addStyledItem(
                 this.menu,
                 view.emptyText,
-                "padding-top: 8px; padding-bottom: 8px;",
                 "opacity: 0.72;",
-                "ai-limits-muted",
             );
         } else {
             view.groups.forEach((group, groupIndex) => {
@@ -202,9 +194,7 @@ class AiLimitsApplet extends Applet.Applet {
                 addStyledItem(
                     this.menu,
                     group.label,
-                    "padding-top: 7px; padding-bottom: 3px;",
                     "font-weight: 700; opacity: 0.85;",
-                    "ai-limits-provider-title",
                 );
                 group.accounts.forEach((account, accountIndex) => {
                     if (accountIndex > 0)
@@ -212,44 +202,34 @@ class AiLimitsApplet extends Applet.Applet {
                     addStyledItem(
                         this.menu,
                         account.title,
-                        "padding-top: 7px; padding-bottom: 2px;",
                         "font-weight: 700;",
-                        "ai-limits-account",
                     );
                     if (account.metadata) {
                         addStyledItem(
                             this.menu,
                             account.metadata,
-                            "padding-top: 0; padding-bottom: 5px;",
                             "opacity: 0.72; font-size: 0.9em;",
-                            "ai-limits-muted",
                         );
                     }
                     if (account.error) {
                         addStyledItem(
                             this.menu,
                             account.error,
-                            "padding-top: 2px; padding-bottom: 7px;",
                             "color: #d96b6b;",
-                            "ai-limits-error",
                         );
                     }
                     if (account.noLimits) {
                         addStyledItem(
                             this.menu,
                             account.noLimits,
-                            "padding-top: 2px; padding-bottom: 7px;",
                             "opacity: 0.72;",
-                            "ai-limits-muted",
                         );
                     }
                     account.windows.forEach((window) => {
                         addStyledItem(
                             this.menu,
                             window.text,
-                            "padding-top: 2px; padding-bottom: 2px;",
                             "font-size: 0.95em;",
-                            "ai-limits-window",
                         );
                     });
                 });

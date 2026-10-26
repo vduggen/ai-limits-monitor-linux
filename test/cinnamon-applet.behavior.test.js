@@ -33,6 +33,7 @@ function makeHarness(initialSnapshot) {
   };
   const cacheDirectory = "/tmp/opencode-cinnamon-test/ai-limits-widget";
   let snapshot = initialSnapshot;
+  let panelIconSize = 24;
 
   class Widget {
     constructor(properties = {}) {
@@ -57,7 +58,7 @@ function makeHarness(initialSnapshot) {
     }
 
     add_style_class_name(styleClass) {
-      this.styleClass = styleClass;
+      this.styleClasses = [...(this.styleClasses || []), styleClass];
     }
   }
 
@@ -66,8 +67,12 @@ function makeHarness(initialSnapshot) {
       this.text = text;
       this.sensitive = true;
       this.handlers = new Map();
-      this.actor = { add_style_class_name() {}, set_style() {} };
-      this.label = { set_style() {} };
+      this.actor = {
+        styleClasses: [],
+        add_style_class_name(styleClass) { this.styleClasses.push(styleClass); },
+        set_style(style) { this.style = style; },
+      };
+      this.label = { set_style(style) { this.style = style; } };
     }
 
     connect(signal, callback) {
@@ -171,7 +176,7 @@ function makeHarness(initialSnapshot) {
 
       setAllowedLayout() {}
       set_applet_tooltip(text) { this.tooltip = text; }
-      getPanelIconSize() { return 24; }
+      getPanelIconSize() { return panelIconSize; }
     },
     AppletPopupMenu: class extends Menu {},
   };
@@ -194,7 +199,7 @@ function makeHarness(initialSnapshot) {
     Icon: Widget,
     Label: Widget,
     IconType: { FULLCOLOR: 1 },
-    Align: { MIDDLE: 1, END: 2 },
+    Align: { MIDDLE: "middle", END: "end" },
   };
   const ByteArray = { toString: (bytes) => new TextDecoder().decode(bytes) };
 
@@ -216,6 +221,7 @@ function makeHarness(initialSnapshot) {
     sources,
     subprocesses,
     schedule,
+    setPanelIconSize(value) { panelIconSize = value; },
     setSnapshot(value) { snapshot = value; },
     snapshotModel: snapshotContext.AiLimitsSnapshot,
   };
@@ -277,6 +283,34 @@ test("Cinnamon panel and menu show provider errors and use the GNOME refresh act
 
   applet.menu.items.find((item) => item.text === "Configurar…").activate();
   assert.deepEqual(harness.launchedCommands, [["python3", "/tmp/test-applet/configure.py"]]);
+
+  applet.on_applet_removed_from_panel();
+});
+
+test("Cinnamon panel uses GNOME spacing, icon size, and centered normal-weight labels", () => {
+  const harness = makeHarness(makeSnapshot());
+  const applet = createApplet(harness);
+
+  assert.equal(applet.content.style, "spacing: 6px;");
+  assert.equal(applet.content.children.length, 2);
+  const [group] = applet.content.children;
+  const [icon, label] = group.children;
+  assert.equal(group.style, "spacing: 4px; padding-top: 2px; padding-bottom: 2px;");
+  assert.equal(icon.properties.icon_size, 18);
+  assert.equal(icon.iconSize, 18);
+  assert.equal(icon.properties.style_class, "system-status-icon");
+  assert.equal(icon.properties.y_align, "middle");
+  assert.equal(label.properties.style_class, undefined);
+  assert.equal(label.properties.y_align, "middle");
+
+  const accountTitle = applet.menu.items.find((item) => item.text === "Claude pessoal");
+  assert.equal(accountTitle.actor.style, undefined);
+  assert.equal(accountTitle.label.style, "font-weight: 700;");
+  assert.deepEqual(accountTitle.actor.styleClasses, []);
+
+  harness.setPanelIconSize(16);
+  applet.on_panel_icon_size_changed();
+  assert.equal(icon.iconSize, 12);
 
   applet.on_applet_removed_from_panel();
 });
