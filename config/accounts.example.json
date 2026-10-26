@@ -1,13 +1,16 @@
 {
   "pollIntervalSeconds": 60,
   "probeTimeoutSeconds": 25,
+  "claudeStatusLineMaxAgeSeconds": 180,
+  "claudeOAuthMinIntervalSeconds": 900,
   "accounts": [
     {
       "id": "claude-default",
       "label": "Claude pessoal",
       "provider": "claude",
       "displayMode": "remaining",
-      "configDir": "~/.claude"
+      "configDir": "~/.claude",
+      "statusLinePath": "~/.cache/ai-limits-widget/status/claude-default.json"
     },
     {
       "id": "codex-default",

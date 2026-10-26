@@ -8,8 +8,8 @@ com suporte a múltiplas contas e períodos de uso.
 
 ## Recursos
 
-- Claude: consulta o `get_usage` do Claude Agent SDK usando uma sessão autenticada
-  do Claude Code;
+- Claude: prioriza cotas locais recentes entregues ao `statusLine`; usa o `get_usage`
+  do Claude Agent SDK como fallback limitado por perfil;
 - Codex: inicia `codex app-server` e consulta `account/rateLimits/read`;
 - múltiplas contas Claude e Codex, isoladas por `CLAUDE_CONFIG_DIR` e `CODEX_HOME`;
 - gerenciador GTK para adicionar ou trocar perfis, ativar/desativar/remover contas,
@@ -143,6 +143,72 @@ Use `displayMode: "used"` para mostrar o percentual consumido ou
 `displayMode: "remaining"` para mostrar o percentual restante. O padrão é
 `remaining`. `pollIntervalSeconds` controla a frequência das consultas, e
 `probeTimeoutSeconds` controla o tempo máximo de cada conta.
+
+### Claude: status line local e fallback OAuth
+
+Para evitar consultas repetidas à API de uso, o daemon tenta primeiro a leitura
+local do `statusLine` do Claude Code. O recurso é opcional e precisa ser habilitado
+em cada perfil Claude: adicione ao `settings.json` daquele perfil (mesclando com
+as demais configurações existentes) um comando como:
+
+O Claude Code só inclui essas janelas para assinaturas Pro/Max e depois da
+primeira resposta da sessão. Até a leitura local aparecer, o daemon pode recorrer
+ao fallback OAuth dentro dos intervalos configurados.
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "AI_LIMITS_STATUS_FILE=\"$HOME/.cache/ai-limits-widget/status/claude-default.json\" node \"$HOME/ai-limits-monitor-linux/scripts/claude-statusline-collector.mjs\""
+  }
+}
+```
+
+O caminho do script deve apontar para este clone. Para perfis adicionais, use
+outro arquivo de saída e configure o mesmo caminho em `statusLinePath` na conta
+correspondente de `config/accounts.json`; por exemplo:
+
+```json
+{
+  "id": "claude-default",
+  "label": "Claude pessoal",
+  "provider": "claude",
+  "displayMode": "remaining",
+  "configDir": "~/.claude",
+  "statusLinePath": "~/.cache/ai-limits-widget/status/claude-default.json"
+}
+```
+
+Em perfis não padrão, edite o `settings.json` dentro do `configDir` daquele perfil.
+O coletor mantém a saída de status line (`5h`/`7d`) e grava somente as janelas de
+cota (`used_percentage` e `resets_at`) e o horário da coleta, com permissões
+restritas; converte os resets Unix para datas no snapshot e não persiste sessão,
+transcript, e-mail ou token. Se você já usa um `statusLine` próprio, configure
+`AI_LIMITS_STATUSLINE_COMMAND` com o comando anterior no wrapper para integrá-lo,
+ou substitua-o pelo coletor para exibir apenas as cotas. O applet não altera
+configurações do Claude Code automaticamente. Ao preservar um comando, o coletor
+encaminha a ele o mesmo JSON de entrada, ambiente e diretório, e repassa
+stdout/stderr; uma falha ao gravar a observação não impede o comando anterior. Por
+exemplo, substitua `node "$HOME/.claude/statusline.js"` pelo comando atual:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "AI_LIMITS_STATUS_FILE=\"$HOME/.cache/ai-limits-widget/status/claude-default.json\" AI_LIMITS_STATUSLINE_COMMAND='node \"$HOME/.claude/statusline.js\"' node \"$HOME/ai-limits-monitor-linux/scripts/claude-statusline-collector.mjs\""
+  }
+}
+```
+
+`claudeStatusLineMaxAgeSeconds` (padrão: 180) define por quanto tempo a leitura
+local é considerada recente. Quando ela falta ou envelhece, o fallback OAuth
+bem-sucedido é limitado por `claudeOAuthMinIntervalSeconds` (padrão: 900) por
+perfil. O intervalo e os backoffs informados após erros são persistidos em
+`<caminho-do-cache>.state.json`, sem credenciais. Enquanto uma fonte aguarda, o
+painel conserva a última cota utilizável como antiga, mostra sua idade/origem e
+exibe o motivo da espera. Erros transitórios aguardam 5 minutos; HTTP 429 usa
+15/30/60 minutos com jitter positivo de até 10%, respeitando também o prazo do
+CLI. Não tenta fontes de rede em cascata no mesmo ciclo.
 
 ## Executar e instalar o serviço
 

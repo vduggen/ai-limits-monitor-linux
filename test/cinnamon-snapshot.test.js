@@ -91,6 +91,23 @@ const cases = [
     ]),
   },
   {
+    name: "reused account reading",
+    text: snapshotText(new Date(NOW).toISOString(), [
+      {
+        id: "claude-reused",
+        label: "Claude reutilizado",
+        provider: "claude",
+        status: "ok",
+        displayMode: "used",
+        checkedAt: new Date(NOW - 600_000).toISOString(),
+        source: "statusLine",
+        stale: true,
+        error: "Consulta OAuth aguardando cooldown.",
+        windows: [window("session", "session", "Sessão", 68)],
+      },
+    ]),
+  },
+  {
     name: "future timestamp",
     text: snapshotText(new Date(NOW + 60_000).toISOString(), [
       {

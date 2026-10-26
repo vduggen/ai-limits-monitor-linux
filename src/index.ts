@@ -1,6 +1,7 @@
-import { configPath, loadConfig, cachePath } from "./config.js";
-import { writeSnapshot } from "./cache.js";
-import { readClaudeUsage } from "./providers/claude.js";
+import { configPath, loadConfig, cachePath, providerStatePath } from "./config.js";
+import { readSnapshot, writeSnapshot } from "./cache.js";
+import { readProviderState, writeProviderState } from "./provider-state.js";
+import { readClaudeAccountUsage } from "./providers/claude-fallback.js";
 import { readCodexUsage } from "./providers/codex.js";
 import { formatReset } from "./shared/usage.js";
 import type { AccountConfig, AccountUsage, UsageSnapshot } from "./shared/types.js";
@@ -21,12 +22,6 @@ function parseArgs(args: readonly string[]): { command: string; options: CliOpti
   };
 }
 
-async function readAccount(account: AccountConfig, timeoutSeconds: number): Promise<AccountUsage> {
-  return account.provider === "claude"
-    ? readClaudeUsage(account, timeoutSeconds)
-    : readCodexUsage(account, timeoutSeconds);
-}
-
 function indicatorValue(usage: AccountUsage): number | undefined {
   if (usage.windows.length === 0) return undefined;
   if (usage.displayMode === "used") {
@@ -42,10 +37,13 @@ function printUsage(usage: AccountUsage): void {
   const plan = usage.plan ? ` · ${usage.plan}` : "";
   console.log(`\n${usage.label} [${usage.provider}]${plan}`);
   if (usage.email) console.log(`  conta: ${usage.email}`);
-  if (usage.status !== "ok") {
+  if (usage.source) console.log(`  fonte: ${usage.source === "statusLine" ? "status line local" : "OAuth"}`);
+  if (usage.status !== "ok" && usage.windows.length === 0) {
     console.log(`  status: ${usage.status}${usage.error ? ` — ${usage.error}` : ""}`);
     return;
   }
+  if (usage.stale) console.log(`  dados antigos desde ${new Date(usage.checkedAt).toLocaleString("pt-BR")}`);
+  if (usage.error) console.log(`  aviso: ${usage.error}`);
   if (usage.windows.length === 0) {
     console.log("  Nenhuma janela de uso foi reportada.");
     return;
@@ -72,7 +70,18 @@ async function check(options: CliOptions): Promise<UsageSnapshot> {
   );
   if (accounts.length === 0) throw new Error("Nenhuma conta habilitada para esta consulta.");
 
-  const results = await Promise.all(accounts.map((account) => readAccount(account, config.probeTimeoutSeconds)));
+  const previousSnapshot = await readSnapshot(cachePath());
+  const previousById = new Map(previousSnapshot?.accounts.map((usage) => [usage.id, usage]) ?? []);
+  const providerState = await readProviderState(providerStatePath());
+  const results = await Promise.all(accounts.map((account) => account.provider === "claude"
+    ? readClaudeAccountUsage(account, config.probeTimeoutSeconds, {
+      previous: previousById.get(account.id),
+      state: providerState,
+      oauthMinIntervalSeconds: config.claudeOAuthMinIntervalSeconds,
+      statusLineMaxAgeSeconds: config.claudeStatusLineMaxAgeSeconds,
+    })
+    : readCodexUsage(account, config.probeTimeoutSeconds)));
+  await writeProviderState(providerStatePath(), providerState);
   const snapshot: UsageSnapshot = {
     version: 1,
     createdAt: new Date().toISOString(),

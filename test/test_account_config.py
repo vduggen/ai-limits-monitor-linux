@@ -232,6 +232,7 @@ class AccountConfigurationTests(unittest.TestCase):
                     "label": "Claude um",
                     "provider": "claude",
                     "configDir": str(original),
+                    "statusLinePath": "~/.cache/ai-limits-widget/status/claude-one.json",
                     "enabled": False,
                 },
                 {
@@ -249,6 +250,7 @@ class AccountConfigurationTests(unittest.TestCase):
                 updated["accounts"][0]["configDir"], str(replacement.resolve())
             )
             self.assertFalse(updated["accounts"][0]["enabled"])
+            self.assertNotIn("statusLinePath", updated["accounts"][0])
             with self.assertRaisesRegex(ValueError, "já está configurado"):
                 update_account_profile(config, "claude-one", str(other))
 

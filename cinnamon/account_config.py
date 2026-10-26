@@ -225,7 +225,12 @@ def update_account_profile(
         raise ValueError(f"O perfil já está configurado: {normalized_profile}")
 
     _directory_name, path_key = _PROVIDER_PROFILE_KEYS[provider]
+    previous_profile = _normalized_path(_account_profile_path(account))
     account[path_key] = normalized_profile
+    if provider == "claude" and previous_profile != normalized_profile:
+        # A status-line output path belongs to the original Claude profile.
+        # Do not silently attribute its cached usage to a replacement profile.
+        account.pop("statusLinePath", None)
     _validate_config(updated)
     return updated
 

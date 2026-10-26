@@ -121,6 +121,22 @@ test("malformedAccountsAndStatusesAreHandledSafely", () => {
   ]);
 });
 
+test("plan names use title casing while preserving product and multiplier casing", () => {
+  const view = buildSnapshotView(snapshotText([
+    account({ id: "claude-pro", plan: "claude_pro" }),
+    account({ id: "codex-plus", provider: "codex", plan: "plus" }),
+    account({ id: "claude-max", plan: "MAX_20X" }),
+    account({ id: "chatgpt-business", plan: "chatgpt business" }),
+  ]), NOW);
+
+  assert.deepEqual(view.accounts.map((item) => item.plan), [
+    "Claude Pro",
+    "Plus",
+    "Max 20x",
+    "ChatGPT Business",
+  ]);
+});
+
 test("mixedDisplayModesChooseMostConstrainedIndicators", () => {
   const view = buildSnapshotView(
     snapshotText([
@@ -189,13 +205,13 @@ test("menuViewExplainsCacheStatesAndFiltersUnsupportedAccounts", () => {
   assert.deepEqual(menu.groups.map(({ provider }) => provider), ["claude", "codex"]);
   assert.deepEqual(menu.groups[0].accounts[0], {
     title: "claude-error · Pro",
-    metadata: "claude@example.test · Exibição: % restante",
+    metadata: "claude@example.test",
     error: "Falha de autenticação",
     windows: [],
   });
   assert.deepEqual(menu.groups[1].accounts[0], {
     title: "codex-ok",
-    metadata: "Exibição: % usado",
+    metadata: "Fonte: Codex",
     error: null,
     windows: [
       {
@@ -220,6 +236,47 @@ test("menuViewExplainsAccountsWithoutReportedLimits", () => {
   const menu = buildMenuView(view, NOW);
 
   assert.equal(menu.groups[0].accounts[0].noLimits, "Esta conta não reportou limites.");
+});
+
+test("current account readings show their source and capture age", () => {
+  const view = buildSnapshotView(snapshotText([{
+    ...account({
+      id: "claude-local",
+      label: "Claude local",
+      windows: [window({ id: "session", kind: "session", label: "Sessão", usedPercent: 40 })],
+    }),
+    checkedAt: new Date(NOW - 10 * 60_000).toISOString(),
+    source: "statusLine",
+    stale: false,
+  }]), NOW);
+
+  const menu = buildMenuView(view, NOW);
+  assert.equal(menu.groups[0].accounts[0].metadata,
+    "Fonte: status line local · leitura há 10min");
+});
+
+test("reused account readings keep their values, age, source, and refresh error visible", () => {
+  const view = buildSnapshotView(snapshotText([{
+    ...account({
+      id: "claude-local",
+      label: "Claude local",
+      windows: [window({ id: "session", kind: "session", label: "Sessão", usedPercent: 40 })],
+    }),
+    checkedAt: new Date(NOW - 10 * 60_000).toISOString(),
+    source: "statusLine",
+    stale: true,
+    error: "OAuth em espera por HTTP 429.",
+  }]), NOW);
+
+  const menu = buildMenuView(view, NOW);
+  assert.match(menu.statusText, /sem dados atuais/);
+  assert.equal(menu.groups[0].accounts[0].metadata,
+    "Fonte: status line local · leitura há 10min (antiga)");
+  assert.match(menu.groups[0].accounts[0].error, /HTTP 429/);
+  assert.match(menu.groups[0].accounts[0].windows[0].text, /60% restante/);
+  assert.match(menu.groups[0].accounts[0].windows[0].text, /antiga/);
+  assert.equal(buildPanelLabels(view).claude, "Claude 60% (antigo)");
+  assert.equal(buildPanelLabels(view).entries[0].text, "CL 60% (antigo)");
 });
 
 test("panelLabelsMarkStaleValuesAsOld", () => {

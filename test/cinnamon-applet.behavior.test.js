@@ -542,7 +542,7 @@ test("Cinnamon menu renders account cards with current limits, reset times, and 
   assert.match(findMenuLabel(applet, "AI Limits").style, /color: #ffffff/);
   assert.match(findMenuLabel(applet, "Claude pessoal").style, /color: #f5f6f7/);
   assert.match(
-    findMenuLabel(applet, "claude@example.test · Exibição: % restante").style,
+    findMenuLabel(applet, "claude@example.test").style,
     /color: #dce2e8/,
   );
   assert.match(
@@ -550,6 +550,51 @@ test("Cinnamon menu renders account cards with current limits, reset times, and 
     /color: #f1f3f5/,
   );
   assert.equal(texts.some((text) => /reset available|reset disponível|\bRU\b|\bEN\b/i.test(text)), false);
+
+  applet.on_applet_removed_from_panel();
+});
+
+test("Cinnamon account cards display plan names in title case", () => {
+  const snapshot = makeSnapshot();
+  snapshot.accounts[0].plan = "claude_pro";
+  snapshot.accounts[1].plan = "plus";
+  const applet = createApplet(makeHarness(snapshot));
+  const texts = collectMenuTexts(applet.menu.items);
+
+  assert.ok(texts.includes("Claude Pro"));
+  assert.ok(texts.includes("Plus"));
+
+  applet.on_applet_removed_from_panel();
+});
+
+test("Cinnamon menu shows the source and age of current account readings", () => {
+  const snapshot = makeSnapshot();
+  snapshot.accounts[0].checkedAt = new Date(Date.now() - 10 * 60_000).toISOString();
+  snapshot.accounts[0].source = "statusLine";
+  const applet = createApplet(makeHarness(snapshot));
+  const texts = collectMenuTexts(applet.menu.items);
+
+  assert.ok(texts.some((text) => text.includes("Fonte: status line local · leitura há 10min")));
+  assert.equal(texts.some((text) => text.includes("(antiga)")), false);
+
+  applet.on_applet_removed_from_panel();
+});
+
+test("Cinnamon menu keeps stale quota values visible beside the source warning", () => {
+  const snapshot = makeSnapshot();
+  snapshot.accounts[0].checkedAt = new Date(Date.now() - 10 * 60_000).toISOString();
+  snapshot.accounts[0].source = "statusLine";
+  snapshot.accounts[0].stale = true;
+  snapshot.accounts[0].error = "OAuth aguardando HTTP 429.";
+  const applet = createApplet(makeHarness(snapshot));
+  const texts = collectMenuTexts(applet.menu.items);
+
+  assert.ok(texts.includes("OAuth aguardando HTTP 429."));
+  assert.ok(texts.some((text) => text.includes("Fonte: status line local") && text.includes("antiga")));
+  assert.ok(texts.includes("60% restante · antigo"));
+  assert.ok(texts.some((text) => text.endsWith("· antigo")));
+  assert.equal(collectMenuWidgets(applet.menu.items)
+    .filter((widget) => widget.properties?.style_class === "ai-limits-progress").length, 1);
 
   applet.on_applet_removed_from_panel();
 });

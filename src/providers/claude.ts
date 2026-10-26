@@ -1,3 +1,4 @@
+import { readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -5,6 +6,7 @@ import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
 import type { AccountConfig, AccountUsage } from "../shared/types.js";
 import { displayModeForAccount, makeWindow } from "../shared/usage.js";
+import { claudeProfileKey } from "./claude-profile.js";
 
 interface ClaudeUsageProvider {
   readonly rate_limits_available?: boolean;
@@ -13,6 +15,26 @@ interface ClaudeUsageProvider {
     readonly seven_day?: ClaudeLimit | null;
     readonly model_scoped?: readonly ClaudeScopedLimit[];
   } | null;
+}
+
+interface ClaudeStatusLineRecord {
+  readonly version?: number;
+  readonly capturedAt?: string;
+  readonly rate_limits_available?: boolean;
+  readonly rate_limits?: ClaudeStatusLineRateLimits | null;
+}
+
+interface ClaudeStatusLineLimit {
+  readonly used_percentage?: number | null;
+  readonly utilization?: number | null;
+  readonly resets_at?: number | string | null;
+  readonly display_name?: string;
+}
+
+interface ClaudeStatusLineRateLimits {
+  readonly five_hour?: ClaudeStatusLineLimit | null;
+  readonly seven_day?: ClaudeStatusLineLimit | null;
+  readonly model_scoped?: readonly ClaudeStatusLineLimit[];
 }
 
 interface ClaudeLimit {
@@ -122,6 +144,108 @@ export class ClaudeUsageBackoff {
 
 const blockedProbes = new Map<string, { retryAt: number; usage: AccountUsage }>();
 
+function claudeProbeKey(account: AccountConfig): string {
+  return JSON.stringify([account.id, account.configDir, account.binaryPath]);
+}
+
+function localResetTime(value: number | string | null | undefined): string | undefined {
+  const timestamp = typeof value === "number"
+    ? value * 1000
+    : typeof value === "string" ? Date.parse(value) : Number.NaN;
+  if (!Number.isFinite(timestamp) || Math.abs(timestamp) > 8.64e15) return undefined;
+  return new Date(timestamp).toISOString();
+}
+
+function validatedLocalLimit(limit: ClaudeStatusLineLimit | null | undefined): ClaudeLimit | undefined {
+  const utilization = typeof limit?.used_percentage === "number"
+    ? limit.used_percentage
+    : limit?.utilization;
+  if (
+    !limit
+    || typeof utilization !== "number"
+    || !Number.isFinite(utilization)
+    || utilization < 0
+    || utilization > 100
+  ) return undefined;
+  const resetsAt = localResetTime(limit.resets_at);
+  return {
+    utilization,
+    ...(resetsAt ? { resets_at: resetsAt } : {}),
+  };
+}
+
+function validatedLocalRateLimits(
+  rateLimits: ClaudeStatusLineRecord["rate_limits"],
+): ClaudeUsageProvider["rate_limits"] | undefined {
+  if (!rateLimits) return undefined;
+  const fiveHour = validatedLocalLimit(rateLimits.five_hour);
+  const sevenDay = validatedLocalLimit(rateLimits.seven_day);
+  const modelScoped = (rateLimits.model_scoped ?? []).flatMap((limit) => {
+    if (!limit.display_name) return [];
+    const validated = validatedLocalLimit(limit);
+    return validated ? [{ ...validated, display_name: limit.display_name }] : [];
+  });
+  if (!fiveHour && !sevenDay && modelScoped.length === 0) return undefined;
+  return {
+    ...(fiveHour ? { five_hour: fiveHour } : {}),
+    ...(sevenDay ? { seven_day: sevenDay } : {}),
+    ...(modelScoped.length > 0 ? { model_scoped: modelScoped } : {}),
+  };
+}
+
+export function claudeUsageRetryAt(account: AccountConfig): number | undefined {
+  return blockedProbes.get(claudeProbeKey(account))?.retryAt;
+}
+
+export async function readClaudeStatusLineUsage(
+  account: AccountConfig,
+  maxAgeSeconds: number,
+  now = Date.now(),
+): Promise<AccountUsage | undefined> {
+  if (!account.statusLinePath) return undefined;
+
+  try {
+    if ((await stat(account.statusLinePath)).size > 64 * 1024) return undefined;
+    const value: unknown = JSON.parse(await readFile(account.statusLinePath, "utf8"));
+    if (!value || typeof value !== "object") return undefined;
+    const record = value as ClaudeStatusLineRecord;
+    if (record.version !== 1 || typeof record.capturedAt !== "string") return undefined;
+    const capturedAt = Date.parse(record.capturedAt);
+    if (!Number.isFinite(capturedAt) || capturedAt > now + 60_000) return undefined;
+
+    const checkedAt = new Date(capturedAt).toISOString();
+    if (record.rate_limits_available === false) {
+      const stale = Math.max(0, now - capturedAt) > maxAgeSeconds * 1000;
+      return {
+        id: account.id,
+        label: account.label,
+        provider: "claude",
+        status: "unsupported",
+        displayMode: displayModeForAccount(account),
+        windows: [],
+        checkedAt,
+        profileKey: claudeProfileKey(account),
+        source: "statusLine",
+        stale,
+      };
+    }
+    const rateLimits = validatedLocalRateLimits(record.rate_limits);
+    if (!rateLimits) return undefined;
+
+    const usage = parseClaudeUsage(
+      account,
+      {},
+      { rate_limits_available: true, rate_limits: rateLimits },
+      checkedAt,
+    );
+    if (usage.status !== "ok" || usage.windows.length === 0) return undefined;
+    const stale = Math.max(0, now - capturedAt) > maxAgeSeconds * 1000;
+    return { ...usage, profileKey: claudeProfileKey(account), source: "statusLine", stale };
+  } catch {
+    return undefined;
+  }
+}
+
 export function parseClaudeUsage(
   account: AccountConfig,
   initialization: ClaudeInitialization,
@@ -203,7 +327,7 @@ export async function readClaudeUsage(
   timeoutSeconds: number,
   queryFactory: typeof query = query,
 ): Promise<AccountUsage> {
-  const probeKey = JSON.stringify([account.id, account.configDir, account.binaryPath]);
+  const probeKey = claudeProbeKey(account);
   const blocked = blockedProbes.get(probeKey);
   if (blocked && Date.now() < blocked.retryAt) return blocked.usage;
   blockedProbes.delete(probeKey);
@@ -262,10 +386,16 @@ export async function readClaudeUsage(
       if (rateLimitError) {
         return rememberFailure({
           ...parseClaudeUsage(account, initialization, { rate_limits_available: true, rate_limits: null }, checkedAt),
+          profileKey: claudeProfileKey(account),
+          source: "oauth",
           error: rateLimitError,
         });
       }
-      return rememberFailure(parseClaudeUsage(account, initialization, usage, checkedAt));
+      return rememberFailure({
+        ...parseClaudeUsage(account, initialization, usage, checkedAt),
+        profileKey: claudeProfileKey(account),
+        source: "oauth",
+      });
     } finally {
       abortController.abort();
     }
@@ -279,6 +409,8 @@ export async function readClaudeUsage(
       displayMode: displayModeForAccount(account),
       windows: [],
       checkedAt,
+      profileKey: claudeProfileKey(account),
+      source: "oauth",
       error: backoff.error() ?? (error instanceof Error ? error.message : String(error)),
     });
   }

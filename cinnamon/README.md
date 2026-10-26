@@ -65,8 +65,8 @@ configuração abre um editor gráfico com uma opção real para cada conta.
 
 O applet acompanha gravações do cache e atualiza o painel imediatamente, mantendo
 uma leitura periódica como fallback. O popup identifica cache ausente, inválido
-ou antigo e deixa contas com erro visíveis sem mostrar percentuais antigos como
-atuais. Use o ícone de atualizar no cabeçalho para solicitar uma consulta ao
+ou antigo e deixa contas com erro visíveis; leituras reutilizadas são marcadas
+como antigas e incluem idade e fonte. Use o ícone de atualizar no cabeçalho para solicitar uma consulta ao
 serviço do usuário; é necessário ter `ai-limits-widget.service` instalado e ativo
 para essa ação.
 

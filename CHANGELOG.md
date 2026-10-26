@@ -5,6 +5,11 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
 
 ## Unreleased
 
+### Serviço e interfaces compartilhadas
+
+- Prioriza cotas recentes do status line Claude e limita o fallback OAuth por
+  perfil com estado persistente; leituras reutilizadas mantêm origem, idade e aviso.
+
 ### Cinnamon
 
 - O popup passa a organizar cada conta em um cartão com plano, janelas de uso,

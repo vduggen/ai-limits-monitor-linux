@@ -447,21 +447,34 @@ class AiLimitsApplet extends Applet.Applet {
 
         card.add(makeLabel(account.label, "color: #f5f6f7; font-size: 0.92em; font-weight: 600;"));
         const displayMode = account.displayMode === "used" ? "used" : "remaining";
+        const sourceLabel = account.source === "statusLine"
+            ? "status line local"
+            : account.source === "oauth" ? "OAuth" : account.provider === "codex" ? "Codex" : null;
+        const sourceMetadata = sourceLabel
+            ? "Fonte: " + sourceLabel
+                + (account.checkedAt
+                    ? " · leitura " + this.snapshotModel.formatSnapshotAge(
+                        Math.max(0, Date.now() - Date.parse(account.checkedAt)),
+                    )
+                    : "")
+                + (account.stale ? " (antiga)" : "")
+            : null;
         const metadata = [
             account.email,
-            "Exibição: " + (displayMode === "used" ? "% usado" : "% restante"),
+            sourceMetadata,
         ].filter(Boolean).join(" · ");
         if (metadata)
             card.add(makeLabel(metadata, "color: #dce2e8; font-size: 0.85em;"));
 
-        if (account.status === "error") {
+        if (account.error) {
             card.add(makeLabel(
-                account.error || "Não foi possível consultar esta conta.",
+                account.error,
                 "color: #e97870; font-size: 0.92em; max-width: 410px;",
             ));
-        } else if (account.windows.length === 0) {
+        }
+        if (account.windows.length === 0 && !account.error) {
             card.add(makeLabel("Esta conta não reportou limites.", "color: #e1e5e9; font-size: 0.9em;"));
-        } else {
+        } else if (account.windows.length > 0) {
             account.windows.forEach((window) => {
                 const percent = displayMode === "used" ? window.usedPercent : window.remainingPercent;
                 const duration = formatWindowDuration(window);
@@ -473,7 +486,7 @@ class AiLimitsApplet extends Applet.Applet {
                 labels.set_style("spacing: 8px;");
                 labels.add(makeLabel(windowTitle, "color: #f1f3f5; font-size: 0.95em;", { x_expand: true }));
                 labels.add(makeLabel(
-                    `${percent}% ${displayMode === "used" ? "usado" : "restante"}`,
+                    `${percent}% ${displayMode === "used" ? "usado" : "restante"}${account.stale ? " · antigo" : ""}`,
                     "font-weight: 700; color: #57d69b;",
                 ));
                 row.add(labels);

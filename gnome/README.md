@@ -125,18 +125,19 @@ antigo carregado, uma recarga da sessão poderá ser necessária uma única vez.
 
 ### Claude: limites temporariamente indisponíveis
 
-O CLI pode responder ao SDK com percentuais antigos quando a consulta de uso
-recebe HTTP 429. O daemon detecta esse diagnóstico e não apresenta os números
-guardados como atuais. A conta permanece no painel como `--% (erro)`; o menu
-mostra o motivo e o horário da próxima tentativa. O horário geral do snapshot
-não significa que todas as contas foram atualizadas com sucesso.
+O Claude Code pode responder ao SDK com percentuais antigos quando a consulta de
+uso recebe HTTP 429. O daemon descarta essa resposta como nova leitura. Se houver
+uma leitura válida anterior, o painel conserva o percentual marcado como antigo;
+o menu também mostra idade, fonte e motivo da falha. Sem leitura anterior, a conta
+permanece como `--% (erro)`. O horário geral do snapshot não significa que todas
+as contas foram atualizadas com sucesso.
 
-O daemon respeita o prazo de espera informado pelo CLI (15 minutos quando um
-429 não informa prazo) e tenta novamente automaticamente no próximo ciclo após
-esse prazo. Outras falhas temporárias aguardam 5 minutos. As outras contas
-continuam sendo consultadas normalmente. Reiniciar o serviço não elimina o
-bloqueio que o próprio CLI lembra para a autenticação; não use reinícios
-repetidos para tentar contorná-lo.
+Leituras locais recentes do `statusLine` Claude têm prioridade. O fallback OAuth
+bem-sucedido é limitado ao intervalo configurado (15 minutos por padrão); falhas
+transitórias aguardam 5 minutos e HTTP 429 usa 15/30/60 minutos, com jitter e
+respeito ao prazo informado pelo CLI. O estado persiste entre reinícios. As outras
+contas continuam sendo consultadas normalmente; reiniciar o serviço não contorna
+o limite remoto.
 
 ## Remover
 

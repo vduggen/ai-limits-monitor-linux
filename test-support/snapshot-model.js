@@ -4,5 +4,6 @@ export const {
   buildMenuView,
   buildPanelLabels,
   buildSnapshotView,
+  formatSnapshotAge,
   formatReset,
 } = globalThis.AiLimitsSnapshot;

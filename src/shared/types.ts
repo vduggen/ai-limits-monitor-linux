@@ -11,11 +11,14 @@ export interface AccountConfig {
   readonly binaryPath?: string;
   readonly configDir?: string;
   readonly homeDir?: string;
+  readonly statusLinePath?: string;
 }
 
 export interface AppConfig {
   readonly pollIntervalSeconds: number;
   readonly probeTimeoutSeconds: number;
+  readonly claudeStatusLineMaxAgeSeconds: number;
+  readonly claudeOAuthMinIntervalSeconds: number;
   readonly accounts: readonly AccountConfig[];
 }
 
@@ -43,6 +46,9 @@ export interface AccountUsage {
   readonly email?: string;
   readonly windows: readonly UsageWindow[];
   readonly checkedAt: string;
+  readonly profileKey?: string;
+  readonly source?: "statusLine" | "oauth" | "codex";
+  readonly stale?: boolean;
   readonly error?: string;
 }
 

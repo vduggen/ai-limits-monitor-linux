@@ -22,6 +22,44 @@ var AiLimitsSnapshot = (function () {
         return value !== null && typeof value === "object" && !Array.isArray(value);
     }
 
+    function formatPlanName(value) {
+        if (typeof value !== "string")
+            return value;
+
+        var trimmed = value.trim().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+        if (!trimmed)
+            return trimmed;
+
+        var compact = trimmed.toLowerCase().replace(/[^a-z0-9]/g, "");
+        var knownPlans = {
+            free: "Free",
+            plus: "Plus",
+            pro: "Pro",
+            max: "Max",
+            max5x: "Max 5x",
+            max20x: "Max 20x",
+            maxplan: "Max",
+            team: "Team",
+            enterprise: "Enterprise",
+            business: "Business",
+            claudepro: "Claude Pro",
+            claudemax: "Claude Max",
+            claudemax5x: "Claude Max 5x",
+            claudemax20x: "Claude Max 20x",
+        };
+        if (Object.prototype.hasOwnProperty.call(knownPlans, compact))
+            return knownPlans[compact];
+
+        return trimmed.split(" ").map(function (word) {
+            var lower = word.toLowerCase();
+            if (lower === "chatgpt") return "ChatGPT";
+            if (["ai", "api", "gpt", "llm"].indexOf(lower) !== -1) return lower.toUpperCase();
+            if (/^\d+[a-z]+$/.test(lower)) return lower;
+            if (/[a-z][A-Z]/.test(word)) return word;
+            return lower.charAt(0).toUpperCase() + lower.slice(1);
+        }).join(" ");
+    }
+
     function normalizeWindow(candidate) {
         if (
             !isRecord(candidate)
@@ -74,10 +112,13 @@ var AiLimitsSnapshot = (function () {
             displayMode: candidate.displayMode === "used" ? "used" : "remaining",
             windows: windows,
         };
-        ["plan", "email", "error"].forEach(function (property) {
+        ["plan", "email", "error", "checkedAt", "source"].forEach(function (property) {
             if (typeof candidate[property] === "string")
-                normalized[property] = candidate[property];
+                normalized[property] = property === "plan"
+                    ? formatPlanName(candidate[property])
+                    : candidate[property];
         });
+        normalized.stale = candidate.stale === true;
         return normalized;
     }
 
@@ -244,7 +285,9 @@ var AiLimitsSnapshot = (function () {
                 ? snapshotView.ageMs
                 : Math.max(0, nowMs - Date.parse(snapshotView.createdAt)),
         );
-        var hasErrors = snapshotView.accounts.some(function (account) { return account.status === "error"; });
+        var hasErrors = snapshotView.accounts.some(function (account) {
+            return account.status === "error" || Boolean(account.error);
+        });
         var statusText = snapshotView.timestampInFuture
             ? "Timestamp do cache no futuro; dados não confirmados. Confira o relógio do sistema."
             : snapshotView.state === "stale"
@@ -263,26 +306,39 @@ var AiLimitsSnapshot = (function () {
                 return account.provider === provider;
             }).map(function (account) {
                 var mode = account.displayMode === "used" ? "used" : "remaining";
+                var dataAge = typeof account.checkedAt === "string" && Number.isFinite(Date.parse(account.checkedAt))
+                    ? formatSnapshotAge(Math.max(0, nowMs - Date.parse(account.checkedAt)))
+                    : null;
+                var sourceLabel = account.source === "statusLine"
+                    ? "status line local"
+                    : account.source === "oauth"
+                        ? "OAuth"
+                        : account.provider === "codex" ? "Codex" : null;
+                var sourceMetadata = sourceLabel
+                    ? "Fonte: " + sourceLabel + (dataAge ? " · leitura " + dataAge : "")
+                        + (account.stale ? " (antiga)" : "")
+                    : null;
                 var windows = account.status === "ok"
                     ? account.windows.map(function (window) {
                         var percent = mode === "used" ? window.usedPercent : window.remainingPercent;
                         var modeLabel = mode === "used" ? "usado" : "restante";
                         return {
                             text: window.label + ": " + percent + "% " + modeLabel + " · "
-                                + formatReset(window.resetsAt, nowMs),
+                                + formatReset(window.resetsAt, nowMs)
+                                + (account.stale ? " · antiga" : ""),
                         };
                     })
                     : [];
                 var menuAccount = {
                     title: account.label + (account.plan ? " · " + account.plan : ""),
-                    metadata: [account.email, "Exibição: " + (mode === "used" ? "% usado" : "% restante")]
+                    metadata: [account.email, sourceMetadata]
                         .filter(Boolean).join(" · "),
-                    error: account.status === "error"
-                        ? account.error || "Não foi possível consultar esta conta."
-                        : null,
+                    error: account.error || (account.status === "error"
+                        ? "Não foi possível consultar esta conta."
+                        : null),
                     windows: windows,
                 };
-                if (account.status === "ok" && windows.length === 0)
+                if (account.status === "ok" && windows.length === 0 && !account.error)
                     menuAccount.noLimits = "Esta conta não reportou limites.";
                 return menuAccount;
             });
@@ -323,12 +379,13 @@ var AiLimitsSnapshot = (function () {
                 var values = providerIndicators([account], provider).map(function (indicator) {
                     return indicator.value + "%";
                 }).join(" · ");
+                var accountStaleMarker = account.stale ? " (antigo)" : staleMarker;
                 entries.push({
                     provider: provider,
                     initials: initials,
                     text: account.status === "error"
-                        ? initials + " --% (erro)" + staleMarker
-                        : initials + " " + values + staleMarker,
+                        ? initials + " --% (erro)" + accountStaleMarker
+                        : initials + " " + values + accountStaleMarker,
                 });
             });
         });
@@ -337,10 +394,15 @@ var AiLimitsSnapshot = (function () {
         providers.forEach(function (provider) {
             var label = provider === "claude" ? "Claude" : "Codex";
             var indicators = snapshotView.indicators[provider];
+            var providerHasStaleData = accounts.some(function (account) {
+                return account.provider === provider && account.status === "ok" && account.stale;
+            });
+            var providerStaleMarker = providerHasStaleData && snapshotView.state !== "stale"
+                && !snapshotView.timestampInFuture ? " (antigo)" : staleMarker;
             var value = indicators.length > 0
                 ? indicators.map(function (indicator) { return indicator.value + "%"; }).join(" · ")
                 : "--%";
-            labels[provider] = label + " " + value + staleMarker;
+            labels[provider] = label + " " + value + providerStaleMarker;
         });
         labels.entries = entries;
         return labels;
@@ -350,6 +412,7 @@ var AiLimitsSnapshot = (function () {
         buildMenuView: buildMenuView,
         buildPanelLabels: buildPanelLabels,
         buildSnapshotView: buildSnapshotView,
+        formatSnapshotAge: formatSnapshotAge,
         formatReset: formatReset,
     };
 })();

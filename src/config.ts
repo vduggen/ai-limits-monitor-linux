@@ -17,6 +17,9 @@ function normalizeAccount(account: AccountConfig): AccountConfig {
     ...account,
     ...(account.configDir ? { configDir: expandHome(account.configDir) } : {}),
     ...(account.homeDir ? { homeDir: expandHome(account.homeDir) } : {}),
+    ...(account.statusLinePath
+      ? { statusLinePath: path.resolve(expandHome(account.statusLinePath)) }
+      : {}),
   };
 }
 
@@ -30,6 +33,10 @@ export function cachePath(): string {
   return process.env.AI_LIMITS_CACHE
     ? path.resolve(expandHome(process.env.AI_LIMITS_CACHE))
     : path.join(os.homedir(), ".cache/ai-limits-widget/usage.json");
+}
+
+export function providerStatePath(): string {
+  return `${cachePath()}.state.json`;
 }
 
 export async function loadConfig(): Promise<AppConfig> {
@@ -64,6 +71,13 @@ export async function loadConfig(): Promise<AppConfig> {
     if (candidate.provider === "codex" && !candidate.homeDir) {
       throw new Error(`A conta Codex '${candidate.id}' precisa de homeDir.`);
     }
+    if (candidate.statusLinePath !== undefined
+      && (typeof candidate.statusLinePath !== "string" || !candidate.statusLinePath.trim())) {
+      throw new Error(`A conta '${candidate.id}' precisa de um statusLinePath não vazio.`);
+    }
+    if (candidate.statusLinePath && candidate.provider !== "claude") {
+      throw new Error(`A conta '${candidate.id}' só pode usar statusLinePath com Claude.`);
+    }
     return normalizeAccount(candidate);
   });
 
@@ -76,6 +90,14 @@ export async function loadConfig(): Promise<AppConfig> {
       typeof value.probeTimeoutSeconds === "number" && value.probeTimeoutSeconds > 0
         ? value.probeTimeoutSeconds
         : 25,
+    claudeStatusLineMaxAgeSeconds:
+      typeof value.claudeStatusLineMaxAgeSeconds === "number" && value.claudeStatusLineMaxAgeSeconds > 0
+        ? value.claudeStatusLineMaxAgeSeconds
+        : 180,
+    claudeOAuthMinIntervalSeconds:
+      typeof value.claudeOAuthMinIntervalSeconds === "number" && value.claudeOAuthMinIntervalSeconds > 0
+        ? value.claudeOAuthMinIntervalSeconds
+        : 900,
     accounts,
   };
 }
