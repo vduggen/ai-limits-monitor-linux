@@ -14,8 +14,8 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cinnamon"))
-from cinnamon import configure
-from cinnamon.configure import ConfigurationWindow
+import configure
+from configure import ConfigurationWindow
 
 
 def descendants(widget):
@@ -34,6 +34,7 @@ class ConfigurationWindowTests(unittest.TestCase):
         self.home.mkdir()
         self.path = self.root / "config" / "accounts.json"
         self.path.parent.mkdir()
+        self.cache_path = self.root / "usage.json"
         self.restart_calls = []
         self.windows = []
 
@@ -52,6 +53,7 @@ class ConfigurationWindowTests(unittest.TestCase):
                 restart_service=restart_service or (
                     lambda: self.restart_calls.append("restart")
                 ),
+                cache_path=self.cache_path,
             )
         except TypeError as error:
             self.fail(f"ConfigurationWindow lacks injectable account-manager behavior: {error}")
@@ -78,6 +80,14 @@ class ConfigurationWindowTests(unittest.TestCase):
         ), None)
         self.assertIsNotNone(button, f"missing button: {label}")
         return button
+
+    def check_button_by_label(self, window, label, index=0):
+        buttons = [
+            widget for widget in descendants(window)
+            if isinstance(widget, Gtk.CheckButton) and widget.get_label() == label
+        ]
+        self.assertGreater(len(buttons), index, f"missing check button: {label}")
+        return buttons[index]
 
     def remove_button_for(self, window, account_label):
         frame = next(
@@ -145,6 +155,73 @@ class ConfigurationWindowTests(unittest.TestCase):
         self.assertEqual(len(remaining_entries), 1)
         self.assertEqual(self.restart_calls, [])
         self.assertFalse(self.button_by_label(window, "Remover").get_sensitive())
+
+    def test_screenCanDisableAndEnableAccountsAndWarnAboutSameObservedIdentity(self):
+        first_profile = self.home / ".claude-first"
+        second_profile = self.home / ".claude-second"
+        first_profile.mkdir()
+        second_profile.mkdir()
+        first = self.account_config(
+            "claude", "claude-first", "Claude padrão", first_profile
+        )
+        second = self.account_config(
+            "claude", "claude-second", "Claude pessoal", second_profile
+        )
+        second["enabled"] = False
+        config = {"accounts": [first, second]}
+        self.write_config(config)
+        self.cache_path.write_text(json.dumps({
+            "createdAt": "2026-10-26T12:00:00Z",
+            "accounts": [
+                {"id": "claude-first", "provider": "claude", "email": "same@example.test"},
+                {"id": "claude-second", "provider": "claude", "email": "SAME@example.test"},
+            ],
+        }), encoding="utf-8")
+
+        window = self.make_window(config, lambda _name: "/usr/bin/provider-cli")
+
+        labels = [
+            widget.get_text()
+            for widget in descendants(window)
+            if isinstance(widget, Gtk.Label)
+        ]
+        self.assertTrue(any(
+            "Mesmo e-mail observado na consulta de" in label
+            and "Claude pessoal" in label
+            for label in labels
+        ))
+        self.assertTrue(self.check_button_by_label(window, "Monitorar", 0).get_active())
+        self.assertFalse(self.check_button_by_label(window, "Monitorar", 1).get_active())
+
+        self.check_button_by_label(window, "Monitorar", 1).set_active(True)
+        self.assertTrue(window._draft["accounts"][1]["enabled"])
+        self.check_button_by_label(window, "Monitorar", 0).set_active(False)
+        self.assertFalse(window._draft["accounts"][0]["enabled"])
+        self.assertEqual(self.restart_calls, [])
+
+        self.button_by_label(window, "Salvar").clicked()
+        saved = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertFalse(saved["accounts"][0]["enabled"])
+        self.assertTrue(saved["accounts"][1]["enabled"])
+        self.assertEqual(self.restart_calls, ["restart"])
+
+    def testOnlyEnabledAccountCannotBeTurnedOff(self):
+        profile = self.home / ".claude"
+        profile.mkdir()
+        config = {"accounts": [
+            self.account_config("claude", "claude-only", "Claude pessoal", profile),
+        ]}
+        self.write_config(config)
+        window = self.make_window(config, lambda _name: "/usr/bin/provider-cli")
+
+        monitor = self.check_button_by_label(window, "Monitorar")
+        self.assertFalse(monitor.get_sensitive())
+        self.assertTrue(monitor.get_active())
+        self.assertIn("Trocar pasta…", [
+            widget.get_label()
+            for widget in descendants(window)
+            if isinstance(widget, Gtk.Button)
+        ])
 
     def test_removeButtonCannotLeaveOnlyDisabledAccounts(self):
         active_profile = self.home / ".claude-active"
@@ -295,8 +372,8 @@ class ConfigurationWindowTests(unittest.TestCase):
         self.assertIn("Outra conta Claude…", buttons)
 
     def test_missingConfigExplainsPrerequisiteWithoutCreatingInitialConfig(self):
-        with patch("cinnamon.configure.config_path", return_value=None):
-            with patch("cinnamon.configure.show_error") as show_error:
+        with patch("configure.config_path", return_value=None):
+            with patch("configure.show_error") as show_error:
                 configure.main()
 
         show_error.assert_called_once()

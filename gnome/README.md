@@ -65,8 +65,9 @@ lado a lado:
 UUID=ai-limits-monitor@vlduggen
 TARGET="$HOME/.local/share/gnome-shell/extensions/$UUID"
 mkdir -p "$TARGET"
-cp gnome/metadata.json gnome/extension.js gnome/snapshot.js gnome/cache-events.js \
+cp gnome/metadata.json gnome/extension.js gnome/cache-events.js \
   gnome/claude.svg gnome/codex.svg "$TARGET/"
+cp shared/snapshot.js "$TARGET/snapshot.js"
 cp cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py "$TARGET/"
 ```
 
@@ -86,10 +87,13 @@ como desatualizados no menu. A extensão só lê o cache; as consultas continuam
 sendo feitas pelo daemon.
 
 **Configurar…** abre o gerenciador visual de contas. Ele detecta os perfis padrão
-dos CLIs e permite adicionar pastas existentes, editar rótulos/modos ou remover
-contas. É necessário ter uma configuração existente; a interface não cria o
-primeiro `config/accounts.json`. **Salvar** grava as alterações e reinicia o
-serviço uma única vez. Nenhuma dessas ações exige logout/login.
+dos CLIs e permite adicionar/trocar pastas existentes, ativar/desativar/remover
+contas, editar rótulos/modos e avisar quando o último snapshot observa o mesmo
+e-mail em mais de um perfil. Mantenha pelo menos uma conta monitorada. É
+necessário ter uma configuração existente; a interface não cria o primeiro
+`config/accounts.json`. **Salvar** grava as alterações e reinicia o serviço uma
+única vez. Desativar/remover uma conta do monitor não apaga a pasta nem encerra a
+sessão do CLI. Nenhuma dessas ações exige logout/login.
 
 ## Atualizar
 
@@ -99,8 +103,9 @@ Na raiz do clone atualizado, copie novamente os arquivos para o mesmo diretório
 UUID=ai-limits-monitor@vlduggen
 TARGET="$HOME/.local/share/gnome-shell/extensions/$UUID"
 gnome-extensions disable "$UUID"
-cp gnome/metadata.json gnome/extension.js gnome/snapshot.js gnome/cache-events.js \
+cp gnome/metadata.json gnome/extension.js gnome/cache-events.js \
   gnome/claude.svg gnome/codex.svg "$TARGET/"
+cp shared/snapshot.js "$TARGET/snapshot.js"
 cp cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py "$TARGET/"
 gnome-extensions enable "$UUID"
 ```

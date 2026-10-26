@@ -1,11 +1,13 @@
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from cinnamon.config_paths import resolve_config_path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cinnamon"))
+from config_paths import resolve_config_path
 
 
 class ConfigPathResolutionTests(unittest.TestCase):

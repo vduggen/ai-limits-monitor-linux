@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { register } from "tsx/esm/api";
-import { buildMenuView, buildPanelLabels, buildSnapshotView } from "../gnome/snapshot.js";
+import { buildMenuView, buildPanelLabels, buildSnapshotView } from "../test-support/snapshot-model.js";
 
 register();
 const provider = await import("../src/providers/claude.ts");

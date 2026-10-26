@@ -9,7 +9,9 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {isUsageCacheEvent} from './cache-events.js';
-import {buildMenuView, buildPanelLabels, buildSnapshotView} from './snapshot.js';
+import './snapshot.js';
+
+const Snapshot = globalThis.AiLimitsSnapshot;
 
 const CACHE_DIRECTORY = GLib.build_filenamev([
     GLib.get_user_cache_dir(),
@@ -243,9 +245,9 @@ export default class AiLimitsMonitorExtension extends Extension {
         if (!this._enabled)
             return;
 
-        const snapshot = buildSnapshotView(this._readSnapshot());
+        const snapshot = Snapshot.buildSnapshotView(this._readSnapshot());
         this._snapshot = snapshot;
-        const panelLabels = buildPanelLabels(snapshot);
+        const panelLabels = Snapshot.buildPanelLabels(snapshot);
         this._renderPanel(panelLabels.entries);
         this._renderMenu();
         this._finishPendingRefresh(snapshot);
@@ -292,7 +294,7 @@ export default class AiLimitsMonitorExtension extends Extension {
 
     _renderMenu() {
         const menu = this._indicator.menu;
-        const view = buildMenuView(this._snapshot);
+        const view = Snapshot.buildMenuView(this._snapshot);
         menu.removeAll();
 
         this._addMenuItem(view.statusText, 'opacity: 0.72; font-size: 0.9em;');

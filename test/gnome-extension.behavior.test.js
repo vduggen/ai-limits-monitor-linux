@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
+import "../shared/snapshot.js";
 import { isUsageCacheEvent } from "../gnome/cache-events.js";
 
 const extensionSource = await readFile(new URL("../gnome/extension.js", import.meta.url), "utf8");
@@ -75,7 +76,11 @@ function makeHarness() {
   const notifications = [];
   const monitor = new FileMonitor();
   const cacheDirectory = "/tmp/opencode-ai-limits-test/ai-limits-widget";
-  let snapshot = { createdAt: "before-refresh" };
+  let snapshot = {
+    version: 1,
+    createdAt: "2026-09-30T12:00:00.000Z",
+    accounts: [],
+  };
 
   class Widget {
     constructor(properties = {}) {
@@ -226,7 +231,11 @@ function makeEnabledExtension(harness) {
     _cacheMonitorId: 0,
     _refreshItem: null,
     _pendingRefresh: null,
-    _snapshot: { createdAt: "before-refresh" },
+    _snapshot: globalThis.AiLimitsSnapshot.buildSnapshotView(JSON.stringify({
+      version: 1,
+      createdAt: "2026-09-30T12:00:00.000Z",
+      accounts: [],
+    })),
     _indicator: { menu: new Menu(), destroy() { this.destroyed = true; } },
     _panelBox: { add_child() {} },
     _panelEntries: [],
@@ -251,7 +260,11 @@ test("manualRefreshActivatesAsyncServiceRestartAndWaitsForNewSnapshot", () => {
   assert.equal(typeof harness.subprocesses[0].completion, "function");
   assert.equal(refreshItem.sensitive, false);
 
-  harness.setSnapshot({ createdAt: "after-refresh" });
+  harness.setSnapshot({
+    version: 1,
+    createdAt: "2026-09-30T12:01:00.000Z",
+    accounts: [],
+  });
   extension._refresh();
 
   assert.equal(extension._pendingRefresh, null);

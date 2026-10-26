@@ -32,6 +32,17 @@ test("legacyCompatibilityIdentifiersRemainStable", async () => {
   assert.match(serviceSource, /ai-limits-widget\.service/);
 });
 
+test("release versions stay separate and use each component's manifest format", async () => {
+  const packageJson = JSON.parse(await read("package.json"));
+  const cinnamonMetadata = JSON.parse(await read("cinnamon/metadata.json"));
+  const gnomeMetadata = JSON.parse(await read("gnome/metadata.json"));
+
+  assert.match(packageJson.version, /^\d+\.\d+\.\d+$/);
+  assert.match(cinnamonMetadata.version, /^\d+\.\d+\.\d+$/);
+  assert.ok(Number.isSafeInteger(gnomeMetadata.version));
+  assert.ok(gnomeMetadata.version > 0);
+});
+
 test("visibleBrandingUsesTheGenericLinuxProductName", async () => {
   const packageJson = JSON.parse(await read("package.json"));
   const gnomeMetadata = JSON.parse(await read("gnome/metadata.json"));
@@ -65,15 +76,25 @@ test("manualInstallCommandsIncludeAccountAndCacheHelpers", async () => {
 
   const rootCinnamonCopies = copyCommandsContaining(readme, "cp cinnamon/metadata.json");
   const cinnamonCopies = copyCommandsContaining(cinnamonReadme, "cp cinnamon/metadata.json");
+  const rootCinnamonSnapshotCopies = copyCommandsContaining(readme, "cp shared/snapshot.js");
+  const cinnamonSnapshotCopies = copyCommandsContaining(cinnamonReadme, "cp shared/snapshot.js");
   const gnomeCopies = copyCommandsContaining(gnomeReadme, "cp gnome/metadata.json");
+  const gnomeSnapshotCopies = copyCommandsContaining(gnomeReadme, "cp shared/snapshot.js");
   const gnomeEditorCopies = copyCommandsContaining(gnomeReadme, "cp cinnamon/configure.py");
 
   assert.equal(rootCinnamonCopies.length, 1);
   assert.ok(rootCinnamonCopies[0].includes("cinnamon/account_config.py"));
   assert.equal(cinnamonCopies.length, 1);
   assert.ok(cinnamonCopies[0].includes("cinnamon/account_config.py"));
+  assert.equal(rootCinnamonSnapshotCopies.length, 1);
+  assert.ok(rootCinnamonSnapshotCopies[0].includes('"$TARGET/ai_limits_snapshot.js"'));
+  assert.equal(cinnamonSnapshotCopies.length, 1);
+  assert.ok(cinnamonSnapshotCopies[0].includes('"$TARGET/ai_limits_snapshot.js"'));
   assert.equal(gnomeCopies.length, 2);
   assert.ok(gnomeCopies.every((command) => command.includes("gnome/cache-events.js")));
+  assert.ok(gnomeCopies.every((command) => !command.includes("gnome/snapshot.js")));
+  assert.equal(gnomeSnapshotCopies.length, 2);
+  assert.ok(gnomeSnapshotCopies.every((command) => command.includes('"$TARGET/snapshot.js"')));
   assert.equal(gnomeEditorCopies.length, 2);
   assert.ok(gnomeEditorCopies.every((command) => command.includes("cinnamon/account_config.py")));
 });

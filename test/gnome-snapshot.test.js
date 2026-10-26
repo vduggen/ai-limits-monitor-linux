@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildMenuView, buildPanelLabels, buildSnapshotView, formatReset } from "../gnome/snapshot.js";
+import { buildMenuView, buildPanelLabels, buildSnapshotView, formatReset } from "../test-support/snapshot-model.js";
 
 const NOW = Date.parse("2026-09-30T12:00:00.000Z");
 

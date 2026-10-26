@@ -22,6 +22,7 @@ mkdir -p "$TARGET"
 cp cinnamon/metadata.json cinnamon/applet.js cinnamon/settings-schema.json \
   cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py \
   cinnamon/claude.svg cinnamon/codex.svg "$TARGET/"
+cp shared/snapshot.js "$TARGET/ai_limits_snapshot.js"
 ```
 
 O comando acima deve ser executado a partir da raiz do projeto. `configure.py` e
@@ -38,13 +39,15 @@ entradas no Cinnamon.
 
 Use **Configurar…** no popup para abrir o gerenciador GTK. Ele detecta os perfis
 padrão `~/.claude` e `~/.codex` quando o CLI correspondente está disponível e
-permite escolher outras pastas de perfil existentes. Você pode editar rótulo e
-modo (`% restante` ou `% usado`), adicionar perfis extras e remover contas; a
-última conta não pode ser removida. **Salvar** grava tudo junto e solicita uma
-única atualização do serviço do usuário.
+permite adicionar ou trocar pastas de perfil existentes. Na mesma tela, você
+pode ativar/desativar/remover contas e editar rótulos e modo (`% restante` ou
+`% usado`). A tela avisa quando o último snapshot observa o mesmo e-mail em mais
+de um perfil. Mantenha pelo menos uma conta monitorada. **Salvar** grava tudo
+junto e solicita uma única atualização do serviço do usuário.
 
-A autenticação é feita fora do applet pelos CLIs oficiais (`claude auth login` e
-`codex login`). O gerenciador não instala CLIs nem acessa tokens. É necessário
+A autenticação é feita pelos CLIs oficiais (`claude auth login` e `codex login`).
+O gerenciador não instala CLIs nem acessa tokens. Desativar ou remover uma conta
+do monitor não apaga a pasta nem encerra a sessão do CLI. É necessário
 que `config/accounts.json` já exista; siga a instalação rápida do README raiz
 para criar a configuração inicial. Salvar alterações não exige logout da sessão.
 Se o daemon estiver rodando no terminal com `pnpm watch`, sem a unidade systemd
@@ -56,6 +59,12 @@ O indicador mostra cada logo ao lado do percentual configurado por conta, sem
 letras auxiliares. O popup separa as contas por provedor e exibe as janelas
 disponíveis dentro de cada conta. O botão de configuração abre um editor
 gráfico com uma opção real para cada conta.
+
+O applet acompanha gravações do cache e atualiza o painel imediatamente, mantendo
+uma leitura periódica como fallback. O popup identifica cache ausente, inválido
+ou antigo e deixa contas com erro visíveis sem mostrar percentuais antigos como
+atuais. Use **Atualizar agora** para solicitar uma consulta ao serviço do usuário;
+é necessário ter `ai-limits-widget.service` instalado e ativo para essa ação.
 
 No painel, cada conta utilizável aparece em uma entrada própria com o logo do
 provedor, as iniciais do nome e os dois percentuais principais. O nome completo

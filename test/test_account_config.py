@@ -1,20 +1,26 @@
 import json
 import stat
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from cinnamon.account_config import (
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cinnamon"))
+import account_config
+from account_config import (
     add_account,
     discover_default_profiles,
+    duplicate_identity_labels,
     load_config,
     provider_cli_available,
     remove_account,
     restart_user_service,
     save_config,
     update_account,
+    update_account_enabled,
+    update_account_profile,
 )
 
 
@@ -83,7 +89,7 @@ class AccountConfigurationTests(unittest.TestCase):
             }
 
             with patch(
-                "cinnamon.account_config.uuid.uuid4",
+                "account_config.uuid.uuid4",
                 side_effect=[SimpleNamespace(hex="taken"), SimpleNamespace(hex="unique")],
             ):
                 with_claude = add_account(
@@ -183,6 +189,95 @@ class AccountConfigurationTests(unittest.TestCase):
         self.assertEqual(updated["accounts"][0]["vendorMetadata"], {"keep": True})
         self.assertEqual(original["accounts"][0]["label"], "Codex pessoal")
 
+    def test_updateAccountEnabledPreservesOtherSettingsAndRequiresOneActiveAccount(self):
+        config = {"accounts": [
+            {
+                "id": "claude-one",
+                "label": "Claude um",
+                "provider": "claude",
+                "configDir": "/tmp/claude-one",
+                "displayMode": "used",
+                "vendorMetadata": "preservar",
+            },
+            {
+                "id": "claude-two",
+                "label": "Claude dois",
+                "provider": "claude",
+                "configDir": "/tmp/claude-two",
+                "enabled": False,
+            },
+        ]}
+
+        with self.assertRaisesRegex(ValueError, "pelo menos uma"):
+            update_account_enabled(config, "claude-one", enabled=False)
+
+        updated = update_account_enabled(config, "claude-two", enabled=True)
+        disabled = update_account_enabled(updated, "claude-one", enabled=False)
+        self.assertEqual(disabled["accounts"][0]["enabled"], False)
+        self.assertEqual(disabled["accounts"][0]["displayMode"], "used")
+        self.assertEqual(disabled["accounts"][0]["vendorMetadata"], "preservar")
+        self.assertNotIn("enabled", config["accounts"][0])
+
+    def test_updateAccountProfileChangesPathAndRejectsAnotherAccountsProfile(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            original = root / "claude-original"
+            replacement = root / "claude-replacement"
+            other = root / "claude-other"
+            for profile in (original, replacement, other):
+                profile.mkdir()
+            config = {"accounts": [
+                {
+                    "id": "claude-one",
+                    "label": "Claude um",
+                    "provider": "claude",
+                    "configDir": str(original),
+                    "enabled": False,
+                },
+                {
+                    "id": "claude-two",
+                    "label": "Claude dois",
+                    "provider": "claude",
+                    "configDir": str(other),
+                },
+            ]}
+
+            updated = update_account_profile(
+                config, "claude-one", str(replacement)
+            )
+            self.assertEqual(
+                updated["accounts"][0]["configDir"], str(replacement.resolve())
+            )
+            self.assertFalse(updated["accounts"][0]["enabled"])
+            with self.assertRaisesRegex(ValueError, "já está configurado"):
+                update_account_profile(config, "claude-one", str(other))
+
+    def test_duplicateIdentityWarningsUseLatestSnapshotAndProvider(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            cache_path = Path(temporary_directory) / "usage.json"
+            accounts = [
+                {"id": "claude-default", "label": "Claude padrão", "provider": "claude"},
+                {"id": "claude-personal", "label": "Claude pessoal", "provider": "claude"},
+                {"id": "codex-personal", "label": "Codex pessoal", "provider": "codex"},
+            ]
+            cache_path.write_text(json.dumps({
+                "createdAt": "2026-10-26T12:00:00Z",
+                "accounts": [
+                    {"id": "claude-default", "provider": "claude", "email": "same@example.test"},
+                    {"id": "claude-personal", "provider": "claude", "email": " SAME@example.test "},
+                    {"id": "codex-personal", "provider": "codex", "email": "same@example.test"},
+                    {"id": "not-configured", "provider": "claude", "email": "same@example.test"},
+                ],
+            }), encoding="utf-8")
+
+            duplicates, created_at = duplicate_identity_labels(accounts, cache_path)
+
+        self.assertEqual(duplicates, {
+            "claude-default": ["Claude pessoal"],
+            "claude-personal": ["Claude padrão"],
+        })
+        self.assertEqual(created_at, "2026-10-26T12:00:00Z")
+
     def test_loadConfigRejectsInvalidJson(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             path = Path(temporary_directory) / "accounts.json"
@@ -267,7 +362,7 @@ class AccountConfigurationTests(unittest.TestCase):
                 }],
             }
 
-            with patch("cinnamon.account_config.os.replace", side_effect=OSError("disk error")):
+            with patch("account_config.os.replace", side_effect=OSError("disk error")):
                 with self.assertRaisesRegex(OSError, "disk error"):
                     save_config(path, replacement)
 

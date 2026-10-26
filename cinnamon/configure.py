@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import copy
+from datetime import datetime
 import os
 import shutil
 import subprocess
@@ -15,17 +16,25 @@ from gi.repository import Gtk, Pango
 from account_config import (
     add_account,
     discover_default_profiles,
+    duplicate_identity_labels,
     load_config,
     provider_cli_available,
     remove_account,
     restart_user_service,
     save_config,
+    update_account_enabled,
+    update_account_profile,
 )
 from config_paths import resolve_config_path
 
 
 APP_NAME = "AI Limits Monitor for Linux"
-CACHE_PATH = Path.home() / ".cache" / "ai-limits-widget" / "usage.json"
+CACHE_PATH = Path(
+    os.environ.get(
+        "AI_LIMITS_CACHE",
+        str(Path.home() / ".cache" / "ai-limits-widget" / "usage.json"),
+    )
+).expanduser()
 SOURCE_TREE_CONFIG_PATH = (
     Path(__file__).resolve().parent.parent / "config" / "accounts.json"
 )
@@ -70,6 +79,7 @@ class ConfigurationWindow(Gtk.Window):
         home=None,
         executable_lookup=shutil.which,
         restart_service=restart_user_service,
+        cache_path=None,
     ):
         super().__init__(title=f"{APP_NAME} — Contas")
         self.set_default_size(720, 560)
@@ -80,6 +90,7 @@ class ConfigurationWindow(Gtk.Window):
         self.home = Path.home() if home is None else Path(home)
         self.executable_lookup = executable_lookup
         self.restart_service = restart_service
+        self.cache_path = CACHE_PATH if cache_path is None else Path(cache_path)
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.add(outer)
@@ -91,8 +102,9 @@ class ConfigurationWindow(Gtk.Window):
 
         description = Gtk.Label(
             label=(
-                "Adicione perfis Claude/Codex já autenticados, edite o rótulo e escolha "
-                "qual percentual exibir. O login continua sendo feito pelo CLI oficial."
+                "Gerencie os perfis monitorados, escolha qual percentual exibir e confira "
+                "avisos de identidade. A autenticação continua nos CLIs oficiais; "
+                "desativar ou remover aqui não apaga dados nem encerra sessões."
             )
         )
         description.set_xalign(0)
@@ -190,14 +202,20 @@ class ConfigurationWindow(Gtk.Window):
     def _render_accounts(self):
         for child in self.account_box.get_children():
             self.account_box.remove(child)
+        duplicate_labels, snapshot_created_at = duplicate_identity_labels(
+            self._draft["accounts"], self.cache_path
+        )
         for account in self._draft["accounts"]:
-            self._render_account(account)
+            self._render_account(account, duplicate_labels, snapshot_created_at)
         self.account_box.show_all()
 
-    def _render_account(self, account):
+    def _render_account(self, account, duplicate_labels, snapshot_created_at):
         provider = account["provider"]
         frame = Gtk.Frame()
-        frame.set_label(f"{account['label']} · {self._provider_label(provider)}")
+        account_state = " · desativada" if account.get("enabled") is False else ""
+        frame.set_label(
+            f"{account['label']} · {self._provider_label(provider)}{account_state}"
+        )
         self.account_box.pack_start(frame, False, False, 0)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -217,30 +235,82 @@ class ConfigurationWindow(Gtk.Window):
         combo.append("used", "% usado")
         combo.set_active_id(account.get("displayMode", "remaining"))
         row.pack_start(combo, False, False, 0)
-        remove_button = Gtk.Button.new_with_label("Remover")
+
+        enabled_check = Gtk.CheckButton(label="Monitorar")
+        enabled = account.get("enabled") is not False
+        enabled_check.set_active(enabled)
         another_enabled_account = any(
             other["id"] != account["id"] and other.get("enabled") is not False
             for other in self._draft["accounts"]
         )
+        enabled_check.set_sensitive(not enabled or another_enabled_account)
+        enabled_check.set_tooltip_text(
+            "Mantenha pelo menos uma conta monitorada."
+            if not enabled_check.get_sensitive()
+            else "Desativar mantém o perfil configurado, mas deixa de consultá-lo."
+        )
+        row.pack_start(enabled_check, False, False, 0)
+
+        remove_button = Gtk.Button.new_with_label("Remover")
         remove_button.set_sensitive(another_enabled_account)
         remove_button.connect("clicked", self._remove_account, account["id"])
         row.pack_end(remove_button, False, False, 0)
 
         path_key = "configDir" if provider == "claude" else "homeDir"
+        profile_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        content.pack_start(profile_row, False, False, 0)
         profile = Gtk.Label(label=f"Perfil: {account.get(path_key, '')}")
         profile.set_xalign(0)
         profile.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-        content.pack_start(profile, False, False, 0)
+        profile.set_hexpand(True)
+        profile_row.pack_start(profile, True, True, 0)
+        change_profile_button = Gtk.Button.new_with_label("Trocar pasta…")
+        change_profile_button.connect(
+            "clicked", self._choose_replacement_profile, account["id"]
+        )
+        profile_row.pack_end(change_profile_button, False, False, 0)
+
+        other_labels = duplicate_labels.get(account["id"], [])
+        if other_labels:
+            observed_at = self._format_snapshot_timestamp(snapshot_created_at)
+            when = f" na consulta de {observed_at}" if observed_at else " na última consulta"
+            warning = Gtk.Label(
+                label=(
+                    f"Mesmo e-mail observado{when}; também aparece em: "
+                    f"{', '.join(other_labels)}."
+                )
+            )
+            warning.set_xalign(0)
+            warning.set_line_wrap(True)
+            warning.get_style_context().add_class("warning")
+            content.pack_start(warning, False, False, 0)
 
         account_id = account["id"]
         label_entry.connect("changed", self._on_label_changed, account_id, frame)
         combo.connect("changed", self.on_mode_changed, account_id)
+        enabled_check.connect("toggled", self._on_enabled_toggled, account_id)
+
+    @staticmethod
+    def _format_snapshot_timestamp(value):
+        if not isinstance(value, str):
+            return None
+        try:
+            return (
+                datetime.fromisoformat(value.replace("Z", "+00:00"))
+                .astimezone()
+                .strftime("%d/%m/%Y %H:%M")
+            )
+        except ValueError:
+            return None
 
     def _on_label_changed(self, entry, account_id, frame):
         label = entry.get_text()
         account = next(item for item in self._draft["accounts"] if item["id"] == account_id)
         account["label"] = label
-        frame.set_label(f"{label} · {self._provider_label(account['provider'])}")
+        account_state = " · desativada" if account.get("enabled") is False else ""
+        frame.set_label(
+            f"{label} · {self._provider_label(account['provider'])}{account_state}"
+        )
 
     def on_mode_changed(self, combo, account_id):
         mode = combo.get_active_id()
@@ -248,6 +318,57 @@ class ConfigurationWindow(Gtk.Window):
             return
         account = next(item for item in self._draft["accounts"] if item["id"] == account_id)
         account["displayMode"] = mode
+
+    def _on_enabled_toggled(self, button, account_id):
+        try:
+            self._draft = update_account_enabled(
+                self._draft,
+                account_id,
+                enabled=button.get_active(),
+            )
+        except ValueError as error:
+            self.status.set_text(str(error))
+            self._render_accounts()
+            return
+        self._render_accounts()
+        self.status.set_text(
+            "Estado atualizado no rascunho. Pressione Salvar para aplicar."
+        )
+
+    def _choose_replacement_profile(self, _button, account_id):
+        account = next(
+            item for item in self._draft["accounts"] if item["id"] == account_id
+        )
+        path_key = "configDir" if account["provider"] == "claude" else "homeDir"
+        current_profile = Path(account[path_key]).expanduser()
+        chooser = Gtk.FileChooserDialog(
+            title=f"Escolher perfil {self._provider_label(account['provider'])}",
+            parent=self,
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+        )
+        chooser.add_button("Cancelar", Gtk.ResponseType.CANCEL)
+        chooser.add_button("Escolher", Gtk.ResponseType.ACCEPT)
+        chooser.set_current_folder(
+            str(current_profile if current_profile.is_dir() else self.home)
+        )
+        response = chooser.run()
+        profile_path = (
+            chooser.get_filename() if response == Gtk.ResponseType.ACCEPT else None
+        )
+        chooser.destroy()
+        if not profile_path:
+            return
+
+        try:
+            self._draft = update_account_profile(
+                self._draft, account_id, profile_path
+            )
+        except (OSError, ValueError) as error:
+            self.status.set_text(f"Não foi possível trocar o perfil: {error}")
+            return
+        self._render_accounts()
+        self._render_profile_actions()
+        self.status.set_text("Perfil atualizado no rascunho. Pressione Salvar para aplicar.")
 
     def _add_profile(self, provider, profile_path, label, display_mode):
         try:

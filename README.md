@@ -12,13 +12,18 @@ com suporte a múltiplas contas e períodos de uso.
   do Claude Code;
 - Codex: inicia `codex app-server` e consulta `account/rateLimits/read`;
 - múltiplas contas Claude e Codex, isoladas por `CLAUDE_CONFIG_DIR` e `CODEX_HOME`;
-- gerenciador GTK para adicionar perfis detectados ou pastas alternativas, editar
-  rótulos/modo de exibição e remover contas;
+- gerenciador GTK para adicionar ou trocar perfis, ativar/desativar/remover contas,
+  editar rótulos/modo de exibição e sinalizar e-mails repetidos no último snapshot;
 - percentual configurável por conta: `% restante` ou `% usado`;
 - daemon separado do applet, cache local e atualização periódica;
+- interfaces sinalizam cache ausente, inválido ou desatualizado; novas gravações
+  atualizam o painel sem esperar o intervalo periódico;
+- ação **Atualizar agora** solicita uma nova consulta ao serviço do usuário;
 - painel com uma entrada por conta utilizável, mostrando o logo, as iniciais da
   conta e os dois principais períodos; o nome completo continua disponível no
   popup detalhado;
+- Cinnamon e GNOME compartilham a validação do snapshot, os indicadores e os
+  estados de atualização; só os adaptadores visuais são específicos de cada Shell;
 - popup com contas, planos, e-mails, janelas e horários de reset;
 - contas sem limites de assinatura são marcadas como `unsupported` e não aparecem
   no popup operacional.
@@ -47,11 +52,14 @@ sudo apt install python3-gi gir1.2-gtk-3.0
 
 O item **Configurar…** do applet Cinnamon ou da extensão GNOME abre esse editor.
 Ele descobre `~/.claude` e `~/.codex` quando o CLI correspondente está instalado,
-e permite selecionar outras pastas de perfil já existentes. Rótulos, modo de
-exibição e remoções são aplicados juntos por **Salvar**; o serviço do usuário é
-reiniciado uma vez para consultar os dados atualizados. A interface não instala
-CLIs, não inicia autenticação e não lê nem guarda tokens: use os CLIs oficiais
-(`claude auth login` ou `codex login`) para preparar cada perfil.
+e permite selecionar ou trocar pastas de perfil já existentes, ativar/desativar
+contas, editar rótulos/modo de exibição e remover perfis. Também sinaliza quando
+o último snapshot mostra o mesmo e-mail em mais de um perfil. As alterações são
+aplicadas juntas por **Salvar**, que solicita uma atualização do serviço do
+usuário. A interface não instala CLIs, não inicia autenticação e não lê nem guarda
+tokens: use os CLIs oficiais (`claude auth login` ou `codex login`) para preparar
+cada perfil. Desativar/remover uma conta do monitor não apaga a pasta nem encerra
+a sessão do CLI.
 
 O gerenciador exige um `config/accounts.json` já existente. A configuração
 inicial continua sendo criada durante a instalação com o exemplo abaixo; a
@@ -196,6 +204,7 @@ mkdir -p "$TARGET"
 cp cinnamon/metadata.json cinnamon/applet.js cinnamon/settings-schema.json \
   cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py \
   cinnamon/claude.svg cinnamon/codex.svg "$TARGET/"
+cp shared/snapshot.js "$TARGET/ai_limits_snapshot.js"
 chmod +x "$TARGET/configure.py"
 ```
 
@@ -220,11 +229,17 @@ pnpm check
 pnpm build
 pnpm test
 pnpm check:gnome
-node --check cinnamon/applet.js
+pnpm check:cinnamon
 sudo apt install python3-gi gir1.2-gtk-3.0 xvfb
 xvfb-run -a python3 -m unittest discover -s test -v
 python3 -m py_compile cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py
 ```
+
+## Versionamento
+
+Registre cada trabalho no [`CHANGELOG.md`](CHANGELOG.md). As versões do serviço,
+do applet Cinnamon e da extensão GNOME são independentes e avançam somente ao
+preparar releases; veja a [política de versionamento](docs/VERSIONING.md).
 
 As fontes dos logomarks locais e as informações de terceiros estão documentadas
 em [`cinnamon/BRAND-SOURCES.md`](cinnamon/BRAND-SOURCES.md).

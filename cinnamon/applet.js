@@ -2,155 +2,37 @@ const Applet = imports.ui.applet;
 const PopupMenu = imports.ui.popupMenu;
 const Settings = imports.ui.settings;
 const Util = imports.misc.util;
-const Mainloop = imports.mainloop;
+const Main = imports.ui.main;
 const GLib = imports.gi.GLib;
 const Gio = imports.gi.Gio;
 const St = imports.gi.St;
 const ByteArray = imports.byteArray;
 
-const CACHE_PATH = GLib.build_filenamev([
+const CACHE_DIRECTORY = GLib.build_filenamev([
     GLib.get_user_cache_dir(),
     "ai-limits-widget",
+]);
+const CACHE_PATH = GLib.build_filenamev([
+    CACHE_DIRECTORY,
     "usage.json",
 ]);
+const CACHE_DEBOUNCE_MS = 150;
+const MONITOR_RETRY_SECONDS = 5;
+const REFRESH_TIMEOUT_SECONDS = 60;
+const SNAPSHOT_REFRESH_SECONDS = 30;
 
-function formatReset(resetAt) {
-    if (!resetAt) return "reset não informado";
-    const timestamp = Date.parse(resetAt);
-    if (!Number.isFinite(timestamp)) return "reset não informado";
-    const date = new Date(timestamp);
-    const remainingMs = Math.max(0, timestamp - Date.now());
-    const totalMinutes = Math.ceil(remainingMs / 60000);
-    const days = Math.floor(totalMinutes / (24 * 60));
-    const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
-    const minutes = totalMinutes % 60;
-    const countdown = days > 0
-        ? `${days}d ${hours}h`
-        : hours > 0
-            ? `${hours}h ${minutes}m`
-            : `${minutes}m`;
-    return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} (em ${countdown})`;
-}
-
-function formatSnapshotAge(createdAt) {
-    const timestamp = Date.parse(createdAt);
-    if (!Number.isFinite(timestamp)) return "idade desconhecida";
-
-    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-    if (elapsedSeconds < 60) return `há ${elapsedSeconds}s`;
-
-    const elapsedMinutes = Math.floor(elapsedSeconds / 60);
-    if (elapsedMinutes < 60) return `há ${elapsedMinutes}min`;
-
-    const elapsedHours = Math.floor(elapsedMinutes / 60);
-    const minutes = elapsedMinutes % 60;
-    if (elapsedHours < 24) {
-        return minutes > 0 ? `há ${elapsedHours}h ${minutes}min` : `há ${elapsedHours}h`;
-    }
-
-    const elapsedDays = Math.floor(elapsedHours / 24);
-    const hours = elapsedHours % 24;
-    return hours > 0 ? `há ${elapsedDays}d ${hours}h` : `há ${elapsedDays}d`;
-}
-
-function formatSnapshotUpdatedAt(createdAt) {
-    const timestamp = Date.parse(createdAt);
-    if (!Number.isFinite(timestamp)) return `Atualizado: ${createdAt} (idade desconhecida)`;
-    return `Atualizado: ${new Date(timestamp).toLocaleString()} (${formatSnapshotAge(createdAt)})`;
-}
-
-function readSnapshot() {
+function readSnapshotText() {
     try {
         const [ok, contents] = GLib.file_get_contents(CACHE_PATH);
         if (!ok) return null;
-        return JSON.parse(ByteArray.toString(contents));
+        return ByteArray.toString(contents);
     } catch (error) {
         return null;
     }
 }
 
-function displayMode(account) {
-    return account.displayMode === "used" ? "used" : "remaining";
-}
-
-function displayModeLabel(mode) {
-    return mode === "used" ? "% usado" : "% restante";
-}
-
-function accountInitials(account) {
-    const source = String(account.label || account.id || "").trim();
-    const words = source.split(/[\s_-]+/).filter(Boolean);
-    const initials = words.map((word) => Array.from(word)[0]).join("").toUpperCase();
-    return initials.slice(0, 3) || "??";
-}
-
-function windowPriority(kind) {
-    return {
-        session: 0,
-        weekly: 1,
-        monthly: 2,
-        other: 3,
-    }[kind] ?? 3;
-}
-
-function providerIndicators(accounts, provider) {
-    const windowsByKey = new Map();
-    for (const account of accounts) {
-        if (account.provider !== provider || account.status !== "ok" || !Array.isArray(account.windows)) {
-            continue;
-        }
-
-        const mode = displayMode(account);
-        for (const window of account.windows) {
-            const kind = window.kind || "other";
-            // Session and weekly limits from different accounts represent the
-            // same provider window. Other windows keep their own IDs.
-            const key = kind === "other" ? `${kind}:${window.id}` : kind;
-            const value = mode === "used" ? window.usedPercent : window.remainingPercent;
-            const pressure = mode === "used" ? window.usedPercent : 100 - window.remainingPercent;
-            if (!windowsByKey.has(key)) {
-                windowsByKey.set(key, {
-                    kind,
-                    label: window.label,
-                    values: [],
-                });
-            }
-            windowsByKey.get(key).values.push({ value, mode, pressure });
-        }
-    }
-
-    const indicators = [...windowsByKey.values()].map((entry) => {
-        const modes = new Set(entry.values.map((value) => value.mode));
-        if (modes.size === 1) {
-            const mode = entry.values[0].mode;
-            const value = mode === "used"
-                ? Math.max(...entry.values.map((item) => item.value))
-                : Math.min(...entry.values.map((item) => item.value));
-            return { kind: entry.kind, label: entry.label, value, mode };
-        }
-
-        // When accounts use different representations, compare their usage
-        // pressure and keep the most constrained account's representation.
-        const mostConstrained = entry.values.reduce((worst, current) =>
-            current.pressure > worst.pressure ? current : worst);
-        return {
-            kind: entry.kind,
-            label: entry.label,
-            value: mostConstrained.value,
-            mode: mostConstrained.mode,
-        };
-    });
-
-    indicators.sort((left, right) =>
-        windowPriority(left.kind) - windowPriority(right.kind)
-        || left.label.localeCompare(right.label),
-    );
-    return indicators.slice(0, 2);
-}
-
-function accountTitle(account) {
-    const plan = account.plan ? ` · ${account.plan}` : "";
-    return `${account.label}${plan}`;
+function isUsageCacheEvent(changedPath, otherPath) {
+    return changedPath === CACHE_PATH || otherPath === CACHE_PATH;
 }
 
 function addStyledItem(menu, text, actorStyle, labelStyle, styleClass) {
@@ -162,58 +44,22 @@ function addStyledItem(menu, text, actorStyle, labelStyle, styleClass) {
     return item;
 }
 
-function addAccountDetails(menu, account) {
-    const mode = displayMode(account);
-    const modeText = `Exibição: ${displayModeLabel(mode)}`;
-    addStyledItem(
-        menu,
-        accountTitle(account),
-        "padding-top: 7px; padding-bottom: 2px;",
-        "font-weight: 700;",
-        "ai-limits-account",
-    );
-
-    const metadata = [account.email, modeText].filter(Boolean).join(" · ");
-    if (metadata) {
-        addStyledItem(
-            menu,
-            metadata,
-            "padding-top: 0; padding-bottom: 5px;",
-            "opacity: 0.72; font-size: 0.9em;",
-            "ai-limits-muted",
-        );
-    }
-
-    if (account.status !== "ok") {
-        addStyledItem(
-            menu,
-            account.error || "Não foi possível consultar esta conta.",
-            "padding-top: 2px; padding-bottom: 7px;",
-            "color: #d96b6b;",
-            "ai-limits-error",
-        );
-        return;
-    }
-
-    for (const window of account.windows || []) {
-        const percent = mode === "used" ? window.usedPercent : window.remainingPercent;
-        const reset = formatReset(window.resetsAt);
-        addStyledItem(
-            menu,
-            `${window.label}: ${percent}% ${mode === "used" ? "usado" : "restante"}${reset ? ` · ${reset}` : ""}`,
-            "padding-top: 2px; padding-bottom: 2px;",
-            "font-size: 0.95em;",
-            "ai-limits-window",
-        );
-    }
-}
-
 class AiLimitsApplet extends Applet.Applet {
-    constructor(metadata, orientation, panelHeight, instanceId) {
+    constructor(metadata, orientation, panelHeight, instanceId, snapshotModel) {
         super(orientation, panelHeight, instanceId);
         this.setAllowedLayout(Applet.AllowedLayout.HORIZONTAL);
-        this.set_applet_tooltip("Limites Claude/Codex");
+        this.set_applet_tooltip("AI Limits Monitor for Linux");
         this.configurationApp = GLib.build_filenamev([metadata.path || ".", "configure.py"]);
+        this.snapshotModel = snapshotModel;
+        this.removed = false;
+        this.cacheMonitor = null;
+        this.cacheMonitorId = 0;
+        this.cacheRefreshId = 0;
+        this.monitorRetryId = 0;
+        this.refreshTimeoutId = 0;
+        this.pendingRefresh = null;
+        this.refreshItem = null;
+        this.snapshotView = this.snapshotModel.buildSnapshotView(null);
 
         // Cinnamon's applet settings window reads the per-instance JSON file
         // created by AppletSettings.  Without registering a settings object,
@@ -241,10 +87,15 @@ class AiLimitsApplet extends Applet.Applet {
         this.menu = new Applet.AppletPopupMenu(this, orientation);
         this.menuManager.addMenu(this.menu);
         this.updateIconSize();
+        this.monitorCache();
         this.refresh();
-        this.timeoutId = Mainloop.timeout_add_seconds(30, () => {
+        this.timeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, SNAPSHOT_REFRESH_SECONDS, () => {
+            if (this.removed) {
+                this.timeoutId = 0;
+                return GLib.SOURCE_REMOVE;
+            }
             this.refresh();
-            return true;
+            return GLib.SOURCE_CONTINUE;
         });
     }
 
@@ -260,57 +111,40 @@ class AiLimitsApplet extends Applet.Applet {
         };
     }
 
-    renderPanel(accounts) {
+    renderPanel(entries) {
         this.content.remove_all_children();
         this.panelEntries = [];
 
-        const providers = ["claude", "codex"];
-        for (const provider of providers) {
-            const providerAccounts = Array.isArray(accounts)
-                ? accounts.filter((account) =>
-                    account.provider === provider
-                    && account.status === "ok"
-                    && Array.isArray(account.windows)
-                    && account.windows.length > 0)
-                : [null];
+        for (const entry of entries) {
+            const group = new St.BoxLayout({
+                style_class: "ai-limits-provider",
+                reactive: false,
+                vertical: false,
+            });
+            group.set_style("spacing: 4px; padding-top: 2px; padding-bottom: 2px;");
 
-            for (const account of providerAccounts) {
-                const indicators = account
-                    ? providerIndicators([account], provider)
-                    : [];
-                const group = new St.BoxLayout({
-                    style_class: "ai-limits-provider",
-                    reactive: false,
-                    vertical: false,
-                });
-                group.set_style("spacing: 4px; padding-top: 2px; padding-bottom: 2px;");
+            const icon = new St.Icon({
+                gicon: new Gio.FileIcon({
+                    file: Gio.file_new_for_path(this.providers[entry.provider].iconPath),
+                }),
+                icon_type: St.IconType.FULLCOLOR,
+                icon_size: 18,
+                style_class: "ai-limits-provider-icon",
+                x_align: St.Align.MIDDLE,
+                y_align: St.Align.MIDDLE,
+            });
+            const label = new St.Label({
+                text: entry.text,
+                style_class: "applet-label",
+                reactive: false,
+                x_align: St.Align.MIDDLE,
+                y_align: St.Align.END,
+            });
 
-                const icon = new St.Icon({
-                    gicon: new Gio.FileIcon({
-                        file: Gio.file_new_for_path(this.providers[provider].iconPath),
-                    }),
-                    icon_type: St.IconType.FULLCOLOR,
-                    icon_size: 18,
-                    style_class: "ai-limits-provider-icon",
-                    x_align: St.Align.MIDDLE,
-                    y_align: St.Align.MIDDLE,
-                });
-                const values = indicators.map((indicator) => `${indicator.value}%`).join(" · ");
-                const label = new St.Label({
-                    text: account
-                        ? `${accountInitials(account)} ${values || "--%"}`
-                        : "--%",
-                    style_class: "applet-label",
-                    reactive: false,
-                    x_align: St.Align.MIDDLE,
-                    y_align: St.Align.END,
-                });
-
-                group.add(icon);
-                group.add(label);
-                this.content.add(group);
-                this.panelEntries.push({ icon, account, indicators });
-            }
+            group.add(icon);
+            group.add(label);
+            this.content.add(group);
+            this.panelEntries.push({ icon, entry });
         }
 
         this.updateIconSize();
@@ -333,88 +167,256 @@ class AiLimitsApplet extends Applet.Applet {
     }
 
     refresh() {
-        const snapshot = readSnapshot();
-        if (!snapshot || !Array.isArray(snapshot.accounts)) {
-            this.renderPanel(null);
-            this.set_applet_tooltip("AI Limits Monitor for Linux: execute o daemon para atualizar");
-            return;
-        }
-
-        this.renderPanel(snapshot.accounts);
-        const indicatorText = (name, provider) => {
-            const accounts = snapshot.accounts.filter((account) =>
-                account.provider === provider
-                && account.status === "ok"
-                && Array.isArray(account.windows)
-                && account.windows.length > 0);
-            if (accounts.length === 0) return `${name}: --`;
-            return `${name}: ${accounts.map((account) => {
-                const indicators = providerIndicators([account], provider);
-                const values = indicators.map((indicator) => `${indicator.value}% ${displayModeLabel(indicator.mode)}`);
-                return `${accountInitials(account)} ${values.join(" · ")}`;
-            }).join(", ")}`;
-        };
-        this.set_applet_tooltip(`${indicatorText("Claude", "claude")} · ${indicatorText("Codex", "codex")}`);
-        this.snapshot = snapshot;
+        if (this.removed) return;
+        this.snapshotView = this.snapshotModel.buildSnapshotView(readSnapshotText());
+        const panelLabels = this.snapshotModel.buildPanelLabels(this.snapshotView);
+        const menuView = this.snapshotModel.buildMenuView(this.snapshotView);
+        this.renderPanel(panelLabels.entries);
+        this.set_applet_tooltip(menuView.statusText);
+        this.renderMenu(menuView);
+        this.finishPendingRefresh(this.snapshotView);
     }
 
-    on_applet_clicked() {
+    renderMenu(view) {
         this.menu.removeAll();
-        const snapshot = this.snapshot || readSnapshot();
-        if (!snapshot || !Array.isArray(snapshot.accounts)) {
-            this.menu.addMenuItem(new PopupMenu.PopupMenuItem("Nenhum dado no cache.", { reactive: false }));
-        } else {
+        addStyledItem(
+            this.menu,
+            view.statusText,
+            "padding-top: 7px; padding-bottom: 7px;",
+            "opacity: 0.72; font-size: 0.9em;",
+            "ai-limits-updated",
+        );
+
+        if (view.emptyText) {
             addStyledItem(
                 this.menu,
-                formatSnapshotUpdatedAt(snapshot.createdAt),
-                "padding-top: 7px; padding-bottom: 7px;",
-                "opacity: 0.72; font-size: 0.9em;",
-                "ai-limits-updated",
+                view.emptyText,
+                "padding-top: 8px; padding-bottom: 8px;",
+                "opacity: 0.72;",
+                "ai-limits-muted",
             );
-
-            const availableAccounts = snapshot.accounts.filter((account) => account.status !== "unsupported");
-            const providers = [
-                ["claude", "Claude"],
-                ["codex", "Codex"],
-            ];
-            let addedProvider = false;
-            for (const [provider, label] of providers) {
-                const accounts = availableAccounts.filter((account) => account.provider === provider);
-                if (accounts.length === 0) continue;
-
-                if (addedProvider) this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        } else {
+            view.groups.forEach((group, groupIndex) => {
+                if (groupIndex > 0)
+                    this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
                 addStyledItem(
                     this.menu,
-                    label,
+                    group.label,
                     "padding-top: 7px; padding-bottom: 3px;",
                     "font-weight: 700; opacity: 0.85;",
                     "ai-limits-provider-title",
                 );
-                accounts.forEach((account, index) => {
-                    if (index > 0) this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-                    addAccountDetails(this.menu, account);
+                group.accounts.forEach((account, accountIndex) => {
+                    if (accountIndex > 0)
+                        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+                    addStyledItem(
+                        this.menu,
+                        account.title,
+                        "padding-top: 7px; padding-bottom: 2px;",
+                        "font-weight: 700;",
+                        "ai-limits-account",
+                    );
+                    if (account.metadata) {
+                        addStyledItem(
+                            this.menu,
+                            account.metadata,
+                            "padding-top: 0; padding-bottom: 5px;",
+                            "opacity: 0.72; font-size: 0.9em;",
+                            "ai-limits-muted",
+                        );
+                    }
+                    if (account.error) {
+                        addStyledItem(
+                            this.menu,
+                            account.error,
+                            "padding-top: 2px; padding-bottom: 7px;",
+                            "color: #d96b6b;",
+                            "ai-limits-error",
+                        );
+                    }
+                    if (account.noLimits) {
+                        addStyledItem(
+                            this.menu,
+                            account.noLimits,
+                            "padding-top: 2px; padding-bottom: 7px;",
+                            "opacity: 0.72;",
+                            "ai-limits-muted",
+                        );
+                    }
+                    account.windows.forEach((window) => {
+                        addStyledItem(
+                            this.menu,
+                            window.text,
+                            "padding-top: 2px; padding-bottom: 2px;",
+                            "font-size: 0.95em;",
+                            "ai-limits-window",
+                        );
+                    });
                 });
-                addedProvider = true;
-            }
-
-            if (!addedProvider) {
-                addStyledItem(
-                    this.menu,
-                    "Nenhuma conta reportou limites utilizáveis.",
-                    "padding-top: 8px; padding-bottom: 8px;",
-                    "opacity: 0.72;",
-                    "ai-limits-muted",
-                );
-            }
+            });
         }
+
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        const refreshItem = new PopupMenu.PopupMenuItem("Atualizar agora");
+        refreshItem.setSensitive(!this.pendingRefresh);
+        refreshItem.connect("activate", () => this.requestRefresh());
+        this.menu.addMenuItem(refreshItem);
+        this.refreshItem = refreshItem;
+
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        const configureItem = new PopupMenu.PopupMenuItem("Configurar…");
+        configureItem.connect("activate", () => this.configureApplet());
+        this.menu.addMenuItem(configureItem);
+    }
+
+    monitorCache() {
+        if (this.removed || this.cacheMonitor) return;
+        try {
+            const directory = Gio.File.new_for_path(CACHE_DIRECTORY);
+            const monitor = directory.monitor_directory(Gio.FileMonitorFlags.WATCH_MOVES, null);
+            const monitorId = monitor.connect("changed", (_monitor, changedFile, otherFile) => {
+                const changedPath = changedFile ? changedFile.get_path() : null;
+                const otherPath = otherFile ? otherFile.get_path() : null;
+                if (isUsageCacheEvent(changedPath, otherPath))
+                    this.scheduleCacheRefresh();
+            });
+            this.cacheMonitor = monitor;
+            this.cacheMonitorId = monitorId;
+            this.removeSource("monitorRetryId");
+        } catch (error) {
+            this.scheduleMonitorRetry();
+        }
+    }
+
+    scheduleMonitorRetry() {
+        if (this.removed || this.monitorRetryId) return;
+        this.monitorRetryId = GLib.timeout_add_seconds(
+            GLib.PRIORITY_DEFAULT,
+            MONITOR_RETRY_SECONDS,
+            () => {
+                this.monitorRetryId = 0;
+                this.monitorCache();
+                return GLib.SOURCE_REMOVE;
+            },
+        );
+    }
+
+    scheduleCacheRefresh() {
+        if (this.removed) return;
+        this.removeSource("cacheRefreshId");
+        this.cacheRefreshId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT,
+            CACHE_DEBOUNCE_MS,
+            () => {
+                this.cacheRefreshId = 0;
+                this.refresh();
+                return GLib.SOURCE_REMOVE;
+            },
+        );
+    }
+
+    removeSource(property) {
+        if (!this[property]) return;
+        GLib.source_remove(this[property]);
+        this[property] = 0;
+    }
+
+    clearPendingRefresh(expectedRefresh) {
+        if (expectedRefresh && this.pendingRefresh !== expectedRefresh) return;
+        this.removeSource("refreshTimeoutId");
+        this.pendingRefresh = null;
+        if (this.refreshItem)
+            this.refreshItem.setSensitive(true);
+    }
+
+    finishPendingRefresh(snapshotView) {
+        if (
+            !this.pendingRefresh
+            || !snapshotView.createdAt
+            || snapshotView.createdAt === this.pendingRefresh.previousCreatedAt
+        ) return;
+
+        this.clearPendingRefresh();
+        Main.notify("Limites atualizados.", "Um novo snapshot foi recebido.");
+    }
+
+    failPendingRefresh(error, expectedRefresh) {
+        if (!expectedRefresh || this.pendingRefresh !== expectedRefresh) return;
+        this.clearPendingRefresh(expectedRefresh);
+        Main.notify(
+            "Não foi possível atualizar os limites.",
+            error.message || String(error),
+        );
+    }
+
+    requestRefresh() {
+        if (this.removed || this.pendingRefresh) return;
+        const pendingRefresh = {
+            previousCreatedAt: this.snapshotView.createdAt,
+        };
+        this.pendingRefresh = pendingRefresh;
+        if (this.refreshItem)
+            this.refreshItem.setSensitive(false);
+        this.refreshTimeoutId = GLib.timeout_add_seconds(
+            GLib.PRIORITY_DEFAULT,
+            REFRESH_TIMEOUT_SECONDS,
+            () => {
+                this.refreshTimeoutId = 0;
+                if (!this.removed && this.pendingRefresh === pendingRefresh) {
+                    this.clearPendingRefresh(pendingRefresh);
+                    Main.notify(
+                        "A atualização está demorando.",
+                        "O serviço não gravou um novo snapshot em 60 segundos.",
+                    );
+                }
+                return GLib.SOURCE_REMOVE;
+            },
+        );
+
+        try {
+            const process = Gio.Subprocess.new(
+                ["systemctl", "--user", "restart", "ai-limits-widget.service"],
+                Gio.SubprocessFlags.NONE,
+            );
+            process.wait_check_async(null, (subprocess, result) => {
+                if (this.removed || this.pendingRefresh !== pendingRefresh) return;
+                try {
+                    if (!subprocess.wait_check_finish(result))
+                        this.failPendingRefresh(new Error("systemctl terminou sem sucesso."), pendingRefresh);
+                } catch (error) {
+                    this.failPendingRefresh(error, pendingRefresh);
+                }
+            });
+        } catch (error) {
+            this.failPendingRefresh(error, pendingRefresh);
+        }
+    }
+
+    on_applet_clicked() {
+        this.refresh();
         this.menu.toggle();
     }
 
     on_applet_removed_from_panel() {
-        if (this.timeoutId) Mainloop.source_remove(this.timeoutId);
+        this.removed = true;
+        this.removeSource("timeoutId");
+        this.removeSource("cacheRefreshId");
+        this.removeSource("monitorRetryId");
+        this.clearPendingRefresh();
+
+        if (this.cacheMonitor && this.cacheMonitorId)
+            this.cacheMonitor.disconnect(this.cacheMonitorId);
+        if (this.cacheMonitor)
+            this.cacheMonitor.cancel();
+        this.cacheMonitor = null;
+        this.cacheMonitorId = 0;
     }
 }
 
 function main(metadata, orientation, panelHeight, instanceId) {
-    return new AiLimitsApplet(metadata, orientation, panelHeight, instanceId);
+    const appletPath = metadata.path || ".";
+    if (imports.searchPath.indexOf(appletPath) === -1)
+        imports.searchPath.unshift(appletPath);
+    const snapshotModel = imports.ai_limits_snapshot.AiLimitsSnapshot;
+    return new AiLimitsApplet(metadata, orientation, panelHeight, instanceId, snapshotModel);
 }

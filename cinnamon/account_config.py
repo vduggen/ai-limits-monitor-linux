@@ -1,6 +1,7 @@
 """GTK-independent account configuration operations for desktop frontends."""
 
 from collections.abc import Callable
+from collections import defaultdict
 import copy
 import json
 import os
@@ -91,6 +92,8 @@ def _validate_config(config: dict[str, Any]) -> None:
             not isinstance(display_mode, str) or display_mode not in _DISPLAY_MODES
         ):
             raise ValueError(f"Modo de exibição inválido na conta '{account_id}'.")
+        if "enabled" in account and not isinstance(account["enabled"], bool):
+            raise ValueError(f"Estado inválido na conta '{account_id}'.")
         if account_id in identifiers:
             raise ValueError(f"ID de conta duplicado: {account_id}")
         identifiers.add(account_id)
@@ -173,6 +176,110 @@ def update_account(
     account["displayMode"] = display_mode
     _validate_config(updated)
     return updated
+
+
+def update_account_enabled(
+    config: dict[str, Any],
+    account_id: str,
+    *,
+    enabled: bool,
+) -> dict[str, Any]:
+    updated = copy.deepcopy(config)
+    _validate_config(updated)
+    if not isinstance(enabled, bool):
+        raise ValueError("O estado da conta precisa ser verdadeiro ou falso.")
+
+    account = next((item for item in updated["accounts"] if item["id"] == account_id), None)
+    if account is None:
+        raise ValueError(f"Conta não encontrada: {account_id}")
+    if not enabled and account.get("enabled") is not False and not any(
+        item["id"] != account_id and item.get("enabled") is not False
+        for item in updated["accounts"]
+    ):
+        raise ValueError("Mantenha pelo menos uma conta monitorada.")
+
+    account["enabled"] = enabled
+    _validate_config(updated)
+    return updated
+
+
+def update_account_profile(
+    config: dict[str, Any],
+    account_id: str,
+    profile_path: str,
+) -> dict[str, Any]:
+    updated = copy.deepcopy(config)
+    _validate_config(updated)
+    account = next((item for item in updated["accounts"] if item["id"] == account_id), None)
+    if account is None:
+        raise ValueError(f"Conta não encontrada: {account_id}")
+
+    provider = account["provider"]
+    normalized_profile = _normalized_path(profile_path, require_directory=True)
+    if any(
+        item["id"] != account_id
+        and item["provider"] == provider
+        and _normalized_path(_account_profile_path(item)) == normalized_profile
+        for item in updated["accounts"]
+    ):
+        raise ValueError(f"O perfil já está configurado: {normalized_profile}")
+
+    _directory_name, path_key = _PROVIDER_PROFILE_KEYS[provider]
+    account[path_key] = normalized_profile
+    _validate_config(updated)
+    return updated
+
+
+def duplicate_identity_labels(
+    accounts: list[dict[str, Any]],
+    cache_path: Path,
+) -> tuple[dict[str, list[str]], str | None]:
+    """Return duplicate account labels from the latest sanitized usage snapshot."""
+    try:
+        snapshot = json.loads(Path(cache_path).expanduser().read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}, None
+
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("accounts"), list):
+        return {}, None
+
+    configured = {
+        account.get("id"): account
+        for account in accounts
+        if isinstance(account, dict) and isinstance(account.get("id"), str)
+    }
+    identities: dict[tuple[str, str], dict[str, str]] = defaultdict(dict)
+    for usage in snapshot["accounts"]:
+        if not isinstance(usage, dict):
+            continue
+        account_id = usage.get("id")
+        email = usage.get("email")
+        provider = usage.get("provider")
+        if not isinstance(account_id, str):
+            continue
+        account = configured.get(account_id)
+        if (
+            account is None
+            or provider != account.get("provider")
+            or not isinstance(email, str)
+            or not email.strip()
+        ):
+            continue
+        identities[(provider, email.strip().casefold())][account_id] = account["label"]
+
+    duplicates: dict[str, list[str]] = {}
+    for identity_accounts in identities.values():
+        if len(identity_accounts) < 2:
+            continue
+        for account_id in identity_accounts:
+            duplicates[account_id] = [
+                label
+                for other_id, label in identity_accounts.items()
+                if other_id != account_id
+            ]
+
+    created_at = snapshot.get("createdAt")
+    return duplicates, created_at if isinstance(created_at, str) else None
 
 
 def remove_account(config: dict[str, Any], account_id: str) -> dict[str, Any]:
