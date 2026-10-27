@@ -10,8 +10,42 @@ import { register } from "tsx/esm/api";
 register();
 const { claudeProfileKey, readClaudeAccountUsage } = await import("../src/providers/claude-fallback.ts");
 const { emptyProviderState, readProviderState, writeProviderState } = await import("../src/provider-state.ts");
+const { readClaudeDesktopUsage } = await import("../src/providers/claude-desktop.ts");
 const NOW = Date.parse("2026-10-26T12:00:00.000Z");
 const scriptPath = fileURLToPath(new URL("../scripts/claude-statusline-collector.mjs", import.meta.url));
+
+test("Desktop history uses the profile organization and retains the sample timestamp", async (t) => {
+  const directory = await temporaryDirectory(t);
+  const historyPath = path.join(directory, "history.json");
+  const account = { id: "desktop", label: "Desktop", provider: "claude", configDir: directory };
+  await writeFile(path.join(directory, ".claude.json"), JSON.stringify({ oauthAccount: { organizationUuid: "org-a" } }));
+  await writeFile(historyPath, JSON.stringify({ version: 2, samples: [
+    { org: "org-a", t: NOW - 30_000, u: { fh: 18, sd: 24 } },
+    { org: "org-b", t: NOW, u: { fh: 99, sd: 99 } },
+    { org: "org-a", t: NOW + 120_000, u: { fh: 99, sd: 99 } },
+  ] }));
+  const result = await readClaudeDesktopUsage(account, 180, NOW, historyPath);
+  assert.equal(result.source, "desktop");
+  assert.equal(result.checkedAt, new Date(NOW - 30_000).toISOString());
+  assert.deepEqual(result.windows.map(w => w.usedPercent), [18, 24]);
+  assert.equal(result.windows[0].resetsAt, undefined);
+  assert.equal((await readClaudeDesktopUsage(account, 10, NOW, historyPath)).stale, true);
+  await writeFile(path.join(directory, ".claude.json"), JSON.stringify({ oauthAccount: {} }));
+  assert.equal(await readClaudeDesktopUsage(account, 180, NOW, historyPath), undefined);
+});
+
+test("the newest fresh Desktop sample wins over status line and suppresses OAuth", async (t) => {
+  const directory = await temporaryDirectory(t);
+  const statusLinePath = path.join(directory, "local.json");
+  const account = { id: "desktop-first", label: "Desktop", provider: "claude", configDir: directory, statusLinePath };
+  await writeFile(statusLinePath, JSON.stringify({ version: 1, capturedAt: new Date(NOW - 60_000).toISOString(), rate_limits: { five_hour: { used_percentage: 5 } } }));
+  const result = await readClaudeAccountUsage(account, 2, {
+    state: emptyProviderState(), oauthMinIntervalSeconds: 900, statusLineMaxAgeSeconds: 180, now: NOW,
+    readDesktop: async () => usage(account, new Date(NOW - 10_000).toISOString(), { source: "desktop", stale: false }),
+    readOAuth: async () => { throw new Error("OAuth should not run"); },
+  });
+  assert.equal(result.source, "desktop");
+});
 
 async function temporaryDirectory(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "ai-limits-claude-"));
@@ -195,10 +229,23 @@ test("OAuth success is source-labeled and not repeated before its per-profile in
   assert.equal(first.source, "oauth");
   assert.equal(first.stale, false);
   assert.equal(second.source, "oauth");
-  assert.equal(second.stale, true);
+  assert.equal(second.stale, false);
   assert.equal(second.checkedAt, first.checkedAt);
-  assert.match(second.error, /limitada até/);
+  assert.equal(second.error, undefined);
   assert.equal(oauthCalls, 1);
+});
+
+test("a successful cooldown does not make an unrelated older reading current", async (t) => {
+  const directory = await temporaryDirectory(t);
+  const account = { id: "older-cooldown", label: "Claude", provider: "claude", configDir: directory };
+  const state = emptyProviderState();
+  state.claudeOAuth[claudeProfileKey(account)] = { lastAttemptAt: NOW, nextAllowedAt: NOW + 900_000 };
+  const previous = usage(account, new Date(NOW - 600_000).toISOString(), { source: "oauth" });
+  const result = await readClaudeAccountUsage(account, 2, {
+    previous, state, oauthMinIntervalSeconds: 900, statusLineMaxAgeSeconds: 180, now: NOW + 60_000,
+  });
+  assert.equal(result.stale, true);
+  assert.match(result.error, /limitada até/);
 });
 
 test("OAuth failures preserve the last reading and persist a per-profile cooldown", async (t) => {

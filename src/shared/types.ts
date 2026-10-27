@@ -18,6 +18,7 @@ export interface AppConfig {
   readonly pollIntervalSeconds: number;
   readonly probeTimeoutSeconds: number;
   readonly claudeStatusLineMaxAgeSeconds: number;
+  readonly claudeDesktopMaxAgeSeconds: number;
   readonly claudeOAuthMinIntervalSeconds: number;
   readonly accounts: readonly AccountConfig[];
 }
@@ -47,7 +48,7 @@ export interface AccountUsage {
   readonly windows: readonly UsageWindow[];
   readonly checkedAt: string;
   readonly profileKey?: string;
-  readonly source?: "statusLine" | "oauth" | "codex";
+  readonly source?: "statusLine" | "desktop" | "oauth" | "codex";
   readonly stale?: boolean;
   readonly error?: string;
 }

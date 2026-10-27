@@ -311,6 +311,7 @@ var AiLimitsSnapshot = (function () {
                     : null;
                 var sourceLabel = account.source === "statusLine"
                     ? "status line local"
+                    : account.source === "desktop" ? "Claude Desktop"
                     : account.source === "oauth"
                         ? "OAuth"
                         : account.provider === "codex" ? "Codex" : null;

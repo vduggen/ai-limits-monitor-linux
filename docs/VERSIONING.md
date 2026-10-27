@@ -8,9 +8,9 @@ sem obrigar Cinnamon, GNOME e o serviço a receberem o mesmo número.
 
 | Componente | Fonte da versão | Formato atual |
 | --- | --- | --- |
-| Serviço e projeto compartilhado | `package.json` → `version` | SemVer (`0.1.0`) |
-| Applet Cinnamon | `cinnamon/metadata.json` → `version` | SemVer (`0.2.1`) |
-| Extensão GNOME | `gnome/metadata.json` → `version` | Inteiro crescente (`2`) |
+| Serviço e projeto compartilhado | `package.json` → `version` | SemVer (`0.2.0`) |
+| Applet Cinnamon | `cinnamon/metadata.json` → `version` | SemVer (`0.3.0`) |
+| Extensão GNOME | `gnome/metadata.json` → `version` | Inteiro crescente (`3`) |
 
 O GNOME mantém um inteiro no manifesto para compatibilidade com o mecanismo de
 extensões. Não substituir esse campo por uma string SemVer; registre a versão e
@@ -43,9 +43,13 @@ mesmo commit. Componentes não afetados mantêm seu número.
    componentes afetados.
 2. Mantenha mudanças coerentes em commits Git separados quando forem entregas
    independentes; siga o padrão Conventional Commits já usado no repositório.
-3. **Não incremente a versão a cada commit.** Ao preparar uma entrega, mova as
-   notas correspondentes para uma seção datada, atualize somente os manifestos
-   afetados e valide os comandos de teste/build antes de criar a tag.
+3. **Cada atualização entregue deve gerar uma nova versão** de cada componente
+   afetado, mesmo quando não houver uma publicação formal ou tag. Atualize os
+   manifestos junto com a alteração, seguindo as regras por componente acima.
+   Uma atualização pode reunir vários commits; não é necessário incrementar a
+   versão para cada commit intermediário da mesma atualização. Registre o trabalho
+   em `Unreleased` e valide os comandos de teste/build. Ao preparar uma release,
+   mova as notas correspondentes para uma seção datada antes de criar a tag.
 4. Use tags Git independentes para identificar publicações: `core/vX.Y.Z`,
    `cinnamon/vX.Y.Z` e `gnome/vN` (em que `N` corresponde ao inteiro do manifesto
    GNOME). Se vários componentes forem publicados juntos, crie uma tag para cada
@@ -53,6 +57,6 @@ mesmo commit. Componentes não afetados mantêm seu número.
 5. Não reutilize nem reescreva tags publicadas; faça uma nova versão para corrigir
    uma entrega já publicada.
 
-As mudanças que ainda estão em andamento permanecem em `Unreleased`; os números
-dos manifestos só mudam quando a entrega correspondente for preparada para
-release.
+As mudanças ainda não publicadas permanecem em `Unreleased`, inclusive quando
+seus manifestos já foram incrementados para uma atualização entregue. Tags são
+reservadas para releases e não são necessárias para cada atualização.

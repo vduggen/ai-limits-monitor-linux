@@ -94,6 +94,10 @@ export async function loadConfig(): Promise<AppConfig> {
       typeof value.claudeStatusLineMaxAgeSeconds === "number" && value.claudeStatusLineMaxAgeSeconds > 0
         ? value.claudeStatusLineMaxAgeSeconds
         : 180,
+    claudeDesktopMaxAgeSeconds:
+      typeof value.claudeDesktopMaxAgeSeconds === "number" && value.claudeDesktopMaxAgeSeconds > 0
+        ? value.claudeDesktopMaxAgeSeconds
+        : 1200,
     claudeOAuthMinIntervalSeconds:
       typeof value.claudeOAuthMinIntervalSeconds === "number" && value.claudeOAuthMinIntervalSeconds > 0
         ? value.claudeOAuthMinIntervalSeconds

@@ -2,6 +2,7 @@ import type { AccountConfig, AccountUsage } from "../shared/types.js";
 import type { ProviderState } from "../provider-state.js";
 import { claudeProfileKey } from "./claude-profile.js";
 import { claudeUsageRetryAt, readClaudeStatusLineUsage, readClaudeUsage } from "./claude.js";
+import { readClaudeDesktopUsage } from "./claude-desktop.js";
 
 export { claudeProfileKey };
 
@@ -74,19 +75,35 @@ export async function readClaudeAccountUsage(
     readonly state: ProviderState;
     readonly oauthMinIntervalSeconds: number;
     readonly statusLineMaxAgeSeconds: number;
+    readonly desktopMaxAgeSeconds?: number;
     readonly now?: number;
     readonly random?: () => number;
     readonly readOAuth?: typeof readClaudeUsage;
+    readonly readDesktop?: typeof readClaudeDesktopUsage;
   },
 ): Promise<AccountUsage> {
   const now = options.now ?? Date.now();
-  const local = await readClaudeStatusLineUsage(account, options.statusLineMaxAgeSeconds, now);
+  const [statusLine, desktop] = await Promise.all([
+    readClaudeStatusLineUsage(account, options.statusLineMaxAgeSeconds, now),
+    (options.readDesktop ?? readClaudeDesktopUsage)(account, options.desktopMaxAgeSeconds ?? 1200, now),
+  ]);
+  const local = [statusLine, desktop].filter((value): value is AccountUsage => !!value)
+    .sort((a, b) => Number(!!a.stale) - Number(!!b.stale)
+      || Date.parse(b.checkedAt) - Date.parse(a.checkedAt))[0];
   if (local && !local.stale) return local;
 
   const key = claudeProfileKey(account);
   const previousState = options.state.claudeOAuth[key];
   const reusable = reusableUsage(account, local, options.previous);
   if (previousState && now < previousState.nextAllowedAt) {
+    // A successful OAuth reading remains the latest confirmed observation until
+    // the next scheduled probe. Waiting for that probe is not a failure.
+    if (!previousState.lastError && reusable?.source === "oauth"
+      && reusable.profileKey === key
+      && Date.parse(reusable.checkedAt) >= previousState.lastAttemptAt - 60_000) {
+      const { error: _error, ...reading } = reusable;
+      return { ...reading, stale: false };
+    }
     return staleUsage(
       account,
       reusable,

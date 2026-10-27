@@ -144,7 +144,16 @@ Use `displayMode: "used"` para mostrar o percentual consumido ou
 `remaining`. `pollIntervalSeconds` controla a frequência das consultas, e
 `probeTimeoutSeconds` controla o tempo máximo de cada conta.
 
-### Claude: status line local e fallback OAuth
+### Claude: fontes locais e fallback OAuth
+
+O monitor lê o histórico local do Claude Desktop em
+`~/.config/Claude/plan-usage-history.json`, quando disponível, associando cada
+organização ao `oauthAccount.organizationUuid` do `.claude.json` do perfil.
+Não usa percentuais para adivinhar a conta. Entre Desktop e status line, usa a
+observação local válida mais recente. `claudeDesktopMaxAgeSeconds` (padrão: 1200)
+define sua validade; o Desktop pode atualizar o histórico aproximadamente a
+cada 15 minutos. O histórico não informa horários de reset, portanto eles não
+são exibidos para essa leitura. O formato é interno ao Desktop e pode mudar.
 
 Para evitar consultas repetidas à API de uso, o daemon tenta primeiro a leitura
 local do `statusLine` do Claude Code. O recurso é opcional e precisa ser habilitado
@@ -205,8 +214,10 @@ local é considerada recente. Quando ela falta ou envelhece, o fallback OAuth
 bem-sucedido é limitado por `claudeOAuthMinIntervalSeconds` (padrão: 900) por
 perfil. O intervalo e os backoffs informados após erros são persistidos em
 `<caminho-do-cache>.state.json`, sem credenciais. Enquanto uma fonte aguarda, o
-painel conserva a última cota utilizável como antiga, mostra sua idade/origem e
-exibe o motivo da espera. Erros transitórios aguardam 5 minutos; HTTP 429 usa
+painel mantém a leitura OAuth bem-sucedida até a próxima consulta agendada,
+mostrando sua idade real. Em caso de falha, conserva a última cota utilizável
+como antiga e exibe o motivo da espera. O coletor local depende do status line
+do Claude Code; outros clientes não garantem sua atualização. Erros transitórios aguardam 5 minutos; HTTP 429 usa
 15/30/60 minutos com jitter positivo de até 10%, respeitando também o prazo do
 CLI. Não tenta fontes de rede em cascata no mesmo ciclo.
 

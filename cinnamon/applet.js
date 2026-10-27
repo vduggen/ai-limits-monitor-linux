@@ -449,6 +449,7 @@ class AiLimitsApplet extends Applet.Applet {
         const displayMode = account.displayMode === "used" ? "used" : "remaining";
         const sourceLabel = account.source === "statusLine"
             ? "status line local"
+            : account.source === "desktop" ? "Claude Desktop"
             : account.source === "oauth" ? "OAuth" : account.provider === "codex" ? "Codex" : null;
         const sourceMetadata = sourceLabel
             ? "Fonte: " + sourceLabel

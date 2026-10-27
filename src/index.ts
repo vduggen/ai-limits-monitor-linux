@@ -37,7 +37,7 @@ function printUsage(usage: AccountUsage): void {
   const plan = usage.plan ? ` · ${usage.plan}` : "";
   console.log(`\n${usage.label} [${usage.provider}]${plan}`);
   if (usage.email) console.log(`  conta: ${usage.email}`);
-  if (usage.source) console.log(`  fonte: ${usage.source === "statusLine" ? "status line local" : "OAuth"}`);
+  if (usage.source) console.log(`  fonte: ${usage.source === "statusLine" ? "status line local" : usage.source === "desktop" ? "Claude Desktop" : "OAuth"}`);
   if (usage.status !== "ok" && usage.windows.length === 0) {
     console.log(`  status: ${usage.status}${usage.error ? ` — ${usage.error}` : ""}`);
     return;
@@ -79,6 +79,7 @@ async function check(options: CliOptions): Promise<UsageSnapshot> {
       state: providerState,
       oauthMinIntervalSeconds: config.claudeOAuthMinIntervalSeconds,
       statusLineMaxAgeSeconds: config.claudeStatusLineMaxAgeSeconds,
+      desktopMaxAgeSeconds: config.claudeDesktopMaxAgeSeconds,
     })
     : readCodexUsage(account, config.probeTimeoutSeconds)));
   await writeProviderState(providerStatePath(), providerState);
