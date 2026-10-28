@@ -99,6 +99,23 @@ test("manualInstallCommandsIncludeAccountAndCacheHelpers", async () => {
   assert.ok(gnomeEditorCopies.every((command) => command.includes("cinnamon/account_config.py")));
 });
 
+test("manualInstallCommandsCopyProjectUpdaterWithConfigure", async () => {
+  const readme = await read("README.md");
+  const cinnamonReadme = await read("cinnamon/README.md");
+  const gnomeReadme = await read("gnome/README.md");
+  const installCommands = [
+    ...copyCommandsContaining(readme, "cp cinnamon/metadata.json"),
+    ...copyCommandsContaining(cinnamonReadme, "cp cinnamon/metadata.json"),
+    ...copyCommandsContaining(gnomeReadme, "cp cinnamon/configure.py"),
+  ];
+
+  assert.equal(installCommands.length, 4);
+  assert.ok(installCommands.every((command) => command.includes("cinnamon/configure.py")));
+  assert.ok(
+    installCommands.every((command) => command.includes("cinnamon/project_updates.py")),
+  );
+});
+
 test("manualInstallCommandsUseCanonicalRepositoryPaths", async () => {
   const readme = await read("README.md");
   const cinnamonReadme = await read("cinnamon/README.md");

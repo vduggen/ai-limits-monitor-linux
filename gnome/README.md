@@ -58,8 +58,8 @@ editor para localizar essa configuração.
 ## Instalar e habilitar
 
 Copie a extensão e o editor compartilhado para o diretório de extensões do
-usuário. `configure.py`, `config_paths.py` e `account_config.py` precisam ficar
-lado a lado:
+usuário. `configure.py`, `config_paths.py`, `account_config.py` e
+`project_updates.py` precisam ficar lado a lado:
 
 ```bash
 UUID=ai-limits-monitor@vlduggen
@@ -68,7 +68,8 @@ mkdir -p "$TARGET"
 cp gnome/metadata.json gnome/extension.js gnome/cache-events.js \
   gnome/claude.svg gnome/codex.svg "$TARGET/"
 cp shared/snapshot.js "$TARGET/snapshot.js"
-cp cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py "$TARGET/"
+cp cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py \
+  cinnamon/project_updates.py "$TARGET/"
 ```
 
 Na primeira instalação, encerre e inicie novamente a sessão GNOME para que o
@@ -95,6 +96,13 @@ necessário ter uma configuração existente; a interface não cria o primeiro
 única vez. Desativar/remover uma conta do monitor não apaga a pasta nem encerra a
 sessão do CLI. Nenhuma dessas ações exige logout/login.
 
+A seção **Atualizações** verifica commits do clone e permite escolher a pasta do
+projeto, guardando a preferência fora de `accounts.json`. Aplicar pede confirmação,
+exige clone limpo e fast-forward possível, instala dependências bloqueadas, compila,
+sincroniza somente esta extensão e solicita o restart do serviço existente. Uma
+falha depois do pull não descarta nem reverte os commits; a tela informa a etapa e
+se o checkout avançou.
+
 ## Atualizar
 
 Na raiz do clone atualizado, copie novamente os arquivos para o mesmo diretório:
@@ -106,7 +114,8 @@ gnome-extensions disable "$UUID"
 cp gnome/metadata.json gnome/extension.js gnome/cache-events.js \
   gnome/claude.svg gnome/codex.svg "$TARGET/"
 cp shared/snapshot.js "$TARGET/snapshot.js"
-cp cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py "$TARGET/"
+cp cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py \
+  cinnamon/project_updates.py "$TARGET/"
 gnome-extensions enable "$UUID"
 ```
 

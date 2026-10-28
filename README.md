@@ -19,6 +19,8 @@ com suporte a múltiplas contas e períodos de uso.
 - interfaces sinalizam cache ausente, inválido ou desatualizado; novas gravações
   atualizam o painel sem esperar o intervalo periódico;
 - ação **Atualizar agora** solicita uma nova consulta ao serviço do usuário;
+- seção **Atualizações** em **Configurar…** verifica commits do clone e só os
+  aplica após confirmação, com fast-forward e árvore de trabalho limpa;
 - atalho global Cinnamon configurável para abrir/fechar o popup (padrão
   `Super+Alt+A`, sem depender de teclas de pontuação do layout ABNT2);
 - painel com uma entrada por conta utilizável, mostrando o logo, as iniciais da
@@ -64,12 +66,22 @@ tokens: use os CLIs oficiais (`claude auth login` ou `codex login`) para prepara
 cada perfil. Desativar/remover uma conta do monitor não apaga a pasta nem encerra
 a sessão do CLI.
 
+Em **Atualizações**, o editor GTK infere a pasta do clone quando o
+`config/accounts.json` ativo está dentro dele; outra pasta pode ser escolhida e
+fica salva em `~/.config/ai-limits-monitor-linux/settings.json` (ou em
+`$XDG_CONFIG_HOME/ai-limits-monitor-linux/settings.json`). A verificação usa
+`git fetch` sem alterar arquivos de trabalho.
+Aplicar exige confirmação, fast-forward possível e clone limpo; instala as
+dependências bloqueadas, compila, sincroniza somente o frontend que abriu o editor
+e reinicia o serviço existente. Se uma etapa posterior ao pull falhar, o clone
+permanece avançado: não há descarte de alterações nem rollback automático.
+
 O gerenciador exige um `config/accounts.json` já existente. A configuração
 inicial continua sendo criada durante a instalação com o exemplo abaixo; a
 interface não instala o serviço nem cria o primeiro arquivo. Usar **Configurar…**
-ou **Atualizar agora** não exige logout/login. Ao instalar uma nova versão
-JavaScript da extensão GNOME, uma única recarga da sessão pode ser necessária
-para carregar o código novo.
+ou **Atualizar agora** não exige logout/login. Ao sincronizar uma nova versão de
+JavaScript, uma recarga da sessão Cinnamon ou GNOME pode ser necessária para
+carregar o código novo.
 
 As interfaces utilizadas pelo Claude Agent SDK e pelo Codex app-server podem
 mudar sem compatibilidade garantida.
@@ -283,6 +295,7 @@ TARGET="$HOME/.local/share/cinnamon/applets/ai-limits-widget@vlduggen"
 mkdir -p "$TARGET"
 cp cinnamon/metadata.json cinnamon/applet.js cinnamon/settings-schema.json \
   cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py \
+  cinnamon/project_updates.py \
   cinnamon/claude.svg cinnamon/codex.svg "$TARGET/"
 cp shared/snapshot.js "$TARGET/ai_limits_snapshot.js"
 chmod +x "$TARGET/configure.py"
@@ -313,14 +326,15 @@ pnpm check:gnome
 pnpm check:cinnamon
 sudo apt install python3-gi gir1.2-gtk-3.0 xvfb
 xvfb-run -a python3 -m unittest discover -s test -v
-python3 -m py_compile cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py
+python3 -m py_compile cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py cinnamon/project_updates.py
 ```
 
 ## Versionamento
 
 Registre cada trabalho no [`CHANGELOG.md`](CHANGELOG.md). As versões do serviço,
-do applet Cinnamon e da extensão GNOME são independentes e avançam somente ao
-preparar releases; veja a [política de versionamento](docs/VERSIONING.md).
+do applet Cinnamon e da extensão GNOME são independentes; incremente as versões
+dos componentes afetados em cada atualização entregue, mesmo sem preparar uma
+release formal. Consulte a [política de versionamento](docs/VERSIONING.md).
 
 As fontes dos logomarks locais e as informações de terceiros estão documentadas
 em [`cinnamon/BRAND-SOURCES.md`](cinnamon/BRAND-SOURCES.md).

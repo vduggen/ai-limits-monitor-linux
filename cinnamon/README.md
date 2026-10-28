@@ -21,12 +21,14 @@ TARGET="$HOME/.local/share/cinnamon/applets/ai-limits-widget@vlduggen"
 mkdir -p "$TARGET"
 cp cinnamon/metadata.json cinnamon/applet.js cinnamon/settings-schema.json \
   cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py \
+  cinnamon/project_updates.py \
   cinnamon/claude.svg cinnamon/codex.svg "$TARGET/"
 cp shared/snapshot.js "$TARGET/ai_limits_snapshot.js"
 ```
 
-O comando acima deve ser executado a partir da raiz do projeto. `configure.py` e
-`config_paths.py` precisam ficar lado a lado no diretório instalado.
+O comando acima deve ser executado a partir da raiz do projeto. Os módulos
+`configure.py`, `config_paths.py`, `account_config.py` e `project_updates.py`
+precisam ficar lado a lado no diretório instalado.
 
 Depois, abra **Configurações do Sistema → Applets**, procure por **AI Limits Monitor for Linux** e
 adicione-o ao painel. O menu de contexto do applet (**Configurar…**) permite
@@ -46,6 +48,14 @@ tela, você pode ativar/desativar/remover contas e editar rótulos e modo (`% re
 `% usado`). A tela avisa quando o último snapshot observa o mesmo e-mail em mais
 de um perfil. Mantenha pelo menos uma conta monitorada. **Salvar** grava tudo
 junto e solicita uma única atualização do serviço do usuário.
+
+A seção **Atualizações** verifica commits upstream do clone configurado. Você
+pode escolher a pasta do projeto; essa preferência fica fora de `accounts.json`.
+Aplicar exige confirmação, clone limpo e fast-forward possível; o configurador
+instala dependências bloqueadas, compila, sincroniza este applet e reinicia o
+serviço existente. Se uma etapa falhar depois do pull, não há rollback automático.
+Para ativar JavaScript já carregado, talvez seja necessário recarregar a sessão
+do Cinnamon.
 
 A autenticação é feita pelos CLIs oficiais (`claude auth login` e `codex login`).
 O gerenciador não instala CLIs nem acessa tokens. Desativar ou remover uma conta
