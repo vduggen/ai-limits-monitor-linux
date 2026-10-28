@@ -295,10 +295,12 @@ class ProjectUpdateCheckTests(TemporaryProjectGitRepository):
 
 
 class ProjectUpdateApplyTests(TemporaryProjectGitRepository):
-    def apply(self, updater):
+    def apply(self, updater, *, confirmed_update=None):
         apply_updates = getattr(updater, "apply_updates", None)
         self.assertIsNotNone(apply_updates, "ProjectUpdater.apply_updates must be implemented")
-        return apply_updates()
+        if confirmed_update is None:
+            confirmed_update = updater.check_for_updates()
+        return apply_updates(confirmed_update)
 
     @staticmethod
     def available_executables(name):
@@ -314,8 +316,8 @@ class ProjectUpdateApplyTests(TemporaryProjectGitRepository):
                 if operation == "build" and failed_build:
                     return subprocess.CompletedProcess(command, 1, "", "build failed")
                 return subprocess.CompletedProcess(command, 0, "", "")
-            if command[0] == "git" and "pull" in command:
-                events.append("pull")
+            if command[0] == "git" and "merge" in command:
+                events.append("merge")
             return subprocess.run(command, **options)
 
         return run
@@ -347,7 +349,7 @@ class ProjectUpdateApplyTests(TemporaryProjectGitRepository):
         self.assertTrue(result.service_restarted)
         self.assertEqual(
             events,
-            ["pull", "install --frozen-lockfile", "build", "restart"],
+            ["merge", "install --frozen-lockfile", "build", "restart"],
         )
         self.assertEqual(
             self.git(["rev-parse", "HEAD"], cwd=self.project).stdout.strip(),
@@ -371,7 +373,7 @@ class ProjectUpdateApplyTests(TemporaryProjectGitRepository):
         with self.assertRaises(RuntimeError):
             self.apply(updater)
 
-        self.assertNotIn("pull", events)
+        self.assertNotIn("merge", events)
         self.assertNotIn("restart", events)
         self.assertFalse((self.project / "remote.txt").exists())
 
@@ -392,10 +394,44 @@ class ProjectUpdateApplyTests(TemporaryProjectGitRepository):
         with self.assertRaises(RuntimeError):
             self.apply(updater)
 
-        self.assertNotIn("pull", events)
+        self.assertNotIn("merge", events)
         self.assertNotIn("restart", events)
 
-    def test_applyRejectsMissingPnpmBeforePull(self):
+    def test_applyRefusesUpstreamChangesSinceConfirmation(self):
+        self.push_remote_commit("visible update")
+        initial_head = self.git(["rev-parse", "HEAD"], cwd=self.project).stdout.strip()
+        events = []
+        updater = self.updater(
+            command_runner=self.command_runner(events),
+            executable_lookup=self.available_executables,
+            service_restart=lambda: events.append("restart"),
+        )
+        confirmed_check = updater.check_for_updates()
+        self.assertEqual(confirmed_check.behind, 1)
+        self.assertEqual(confirmed_check.head_commit, initial_head)
+        self.assertEqual(
+            confirmed_check.upstream_commit,
+            self.git(["rev-parse", "origin/main"], cwd=self.project).stdout.strip(),
+        )
+
+        self.push_remote_commit("unseen update")
+
+        try:
+            self.apply(updater, confirmed_update=confirmed_check)
+        except Exception as error:
+            self.assertIsInstance(error, self.api("ProjectUpdateError"))
+            self.assertIn("mudou desde a verificação", str(error))
+        else:
+            self.fail("apply must reject an upstream commit that was not confirmed")
+
+        self.assertEqual(
+            self.git(["rev-parse", "HEAD"], cwd=self.project).stdout.strip(),
+            initial_head,
+        )
+        self.assertEqual(events, [])
+        self.assertFalse((self.project / "remote.txt").exists())
+
+    def test_applyRejectsMissingPnpmBeforeMerge(self):
         self.push_remote_commit()
         events = []
         updater = self.updater(
@@ -407,7 +443,7 @@ class ProjectUpdateApplyTests(TemporaryProjectGitRepository):
         with self.assertRaisesRegex(RuntimeError, "pnpm"):
             self.apply(updater)
 
-        self.assertNotIn("pull", events)
+        self.assertNotIn("merge", events)
         self.assertNotIn("restart", events)
         self.assertFalse((self.project / "remote.txt").exists())
 
@@ -429,7 +465,7 @@ class ProjectUpdateApplyTests(TemporaryProjectGitRepository):
         self.assertEqual(raised.exception.stage, "build")
         self.assertEqual(raised.exception.message, "build failed")
         self.assertTrue(raised.exception.checkout_updated)
-        self.assertIn("pull", events)
+        self.assertIn("merge", events)
         self.assertNotIn("restart", events)
         self.assertFalse((target / "applet.js").exists())
         self.assertTrue((self.project / "remote.txt").exists())

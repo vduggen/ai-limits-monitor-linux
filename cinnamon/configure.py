@@ -129,6 +129,7 @@ class ConfigurationWindow(Gtk.Window):
         )
         self._update_check = None
         self._update_busy = False
+        self.connect("delete-event", self._on_delete_event)
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.add(outer)
@@ -171,9 +172,11 @@ class ConfigurationWindow(Gtk.Window):
         actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         outer.pack_end(actions, False, False, 0)
         close_button = Gtk.Button.new_with_label("Fechar")
-        close_button.connect("clicked", lambda *_args: self.destroy())
+        self.close_button = close_button
+        close_button.connect("clicked", self._on_close_window)
         actions.pack_end(close_button, False, False, 0)
         save_button = Gtk.Button.new_with_label("Salvar")
+        self.save_button = save_button
         save_button.get_style_context().add_class("suggested-action")
         save_button.connect("clicked", self.on_save)
         actions.pack_end(save_button, False, False, 0)
@@ -234,6 +237,25 @@ class ConfigurationWindow(Gtk.Window):
             self._update_check is not None and self._update_check.can_apply
         )
         self.apply_update_button.set_sensitive(available and can_apply)
+        if hasattr(self, "close_button"):
+            self.close_button.set_sensitive(available)
+        if hasattr(self, "save_button"):
+            self.save_button.set_sensitive(available)
+
+    def _block_close_during_update(self):
+        if not self._update_busy:
+            return False
+        self.update_status.set_text(
+            "Uma atualização está em andamento; aguarde a conclusão antes de fechar."
+        )
+        return True
+
+    def _on_delete_event(self, _window, _event):
+        return self._block_close_during_update()
+
+    def _on_close_window(self, _button):
+        if not self._block_close_during_update():
+            self.destroy()
 
     def _choose_project_directory(self):
         dialog = Gtk.FileChooserDialog(
@@ -367,7 +389,7 @@ class ConfigurationWindow(Gtk.Window):
         self._update_check = None
         self.update_status.set_text("Aplicando atualização confirmada…")
         self._start_project_operation(
-            self.project_updater.apply_updates,
+            lambda: self.project_updater.apply_updates(update_check),
             self._on_update_applied,
             failure_stage="aplicação",
         )
@@ -708,6 +730,12 @@ class ConfigurationWindow(Gtk.Window):
         self.status.set_text("Conta removida do rascunho. Pressione Salvar para aplicar.")
 
     def on_save(self, _button):
+        if self._update_busy:
+            self.status.set_text(
+                "Uma atualização está em andamento; aguarde antes de salvar e "
+                "reiniciar o monitor."
+            )
+            return
         try:
             save_config(self.path, self._draft)
         except (OSError, ValueError) as error:

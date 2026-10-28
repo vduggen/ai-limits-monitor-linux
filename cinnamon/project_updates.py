@@ -143,6 +143,8 @@ class UpdateCheck:
     """Summary of the local branch relative to its configured upstream."""
 
     project_path: Path
+    head_commit: str
+    upstream_commit: str
     ahead: int
     behind: int
     dirty: bool
@@ -320,6 +322,8 @@ class ProjectUpdater:
             timeout=10,
             error_context="Não há upstream configurado para a branch atual",
         )
+        head_commit = self._run_git(["rev-parse", "HEAD"], timeout=10)
+        upstream_commit = self._run_git(["rev-parse", upstream], timeout=10)
         counts = self._run_git(
             ["rev-list", "--left-right", "--count", f"HEAD...{upstream}"],
             timeout=10,
@@ -341,30 +345,51 @@ class ProjectUpdater:
 
         return UpdateCheck(
             project_path=self._project_path,
+            head_commit=head_commit,
+            upstream_commit=upstream_commit,
             ahead=ahead,
             behind=behind,
             dirty=dirty,
             commits=commits,
         )
 
-    def apply_updates(self) -> UpdateApplyResult:
+    def apply_updates(self, confirmed_update: UpdateCheck) -> UpdateApplyResult:
         """Fast-forward, build, sync the active frontend, and restart the service."""
         self._require_executable("git")
         self._require_executable("pnpm")
+        if not confirmed_update.can_apply:
+            raise ProjectUpdateError(
+                "preflight",
+                "A verificação confirmada não permite aplicar a atualização.",
+                False,
+            )
         try:
             update_check = self.check_for_updates()
         except (OSError, RuntimeError, ValueError) as error:
             raise ProjectUpdateError("check", str(error), False) from error
+        if (
+            confirmed_update.project_path != update_check.project_path
+            or confirmed_update.head_commit != update_check.head_commit
+            or confirmed_update.upstream_commit != update_check.upstream_commit
+        ):
+            raise ProjectUpdateError(
+                "preflight",
+                "O clone ou o upstream mudou desde a verificação. Verifique novamente "
+                "e confirme os commits atuais.",
+                False,
+            )
         if not update_check.can_apply:
             reason = self._blocked_update_reason(update_check)
             raise ProjectUpdateError("preflight", reason, False)
 
-        previous_head = self._run_git(["rev-parse", "HEAD"], timeout=10)
+        previous_head = update_check.head_commit
         try:
-            self._run_git(["pull", "--ff-only"], timeout=60)
+            self._run_git(
+                ["merge", "--ff-only", update_check.upstream_commit], timeout=60
+            )
         except RuntimeError as error:
             checkout_updated = self._current_head() != previous_head
-            raise ProjectUpdateError("pull", str(error), checkout_updated) from error
+            raise ProjectUpdateError("merge", str(error), checkout_updated) from error
 
         self._run_pnpm(
             ["install", "--frozen-lockfile"],

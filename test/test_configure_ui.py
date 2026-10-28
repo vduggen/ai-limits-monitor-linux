@@ -38,6 +38,7 @@ class FakeProjectUpdater:
         )
         self.apply_error = None
         self.apply_calls = 0
+        self.apply_confirmed_update = None
 
     def set_project_path(self, path):
         selected_path = Path(path)
@@ -48,8 +49,9 @@ class FakeProjectUpdater:
     def check_for_updates(self):
         return self.check_result
 
-    def apply_updates(self):
+    def apply_updates(self, confirmed_update):
         self.apply_calls += 1
+        self.apply_confirmed_update = confirmed_update
         if self.apply_error is not None:
             raise self.apply_error
         return self.apply_result
@@ -253,6 +255,60 @@ class ConfigurationWindowTests(unittest.TestCase):
         self.assertFalse(check_button.get_sensitive())
         self.assertFalse(self.button_by_label(window, "Escolher projeto…").get_sensitive())
         self.assertFalse(self.button_by_label(window, "Aplicar atualização").get_sensitive())
+        self.assertFalse(self.button_by_label(window, "Fechar").get_sensitive())
+        self.assertFalse(self.button_by_label(window, "Salvar").get_sensitive())
+
+    def test_saveCannotRestartServiceDuringProjectUpdate(self):
+        project_updater = self.updater(can_apply=True, behind=1)
+        config = self.basic_config()
+        self.write_config(config)
+        pending_operations = []
+
+        def queued_background_runner(operation, on_success, on_error):
+            pending_operations.append((operation, on_success, on_error))
+
+        window = self.make_window(
+            config,
+            lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+            background_runner=queued_background_runner,
+            confirm_update=lambda _check: True,
+        )
+        self.button_by_label(window, "Verificar atualizações").clicked()
+        operation, on_success, _on_error = pending_operations.pop()
+        on_success(operation())
+        self.button_by_label(window, "Aplicar atualização").clicked()
+
+        save_button = self.button_by_label(window, "Salvar")
+        self.assertFalse(save_button.get_sensitive())
+        window.on_save(None)
+
+        self.assertEqual(self.restart_calls, [])
+        self.assertIn("aguarde", window.status.get_text().lower())
+
+    def test_windowCannotCloseWhileProjectUpdateIsRunning(self):
+        project_updater = self.updater()
+        pending_operations = []
+
+        def queued_background_runner(operation, on_success, on_error):
+            pending_operations.append((operation, on_success, on_error))
+
+        window = self.make_window(
+            self.basic_config(),
+            lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+            background_runner=queued_background_runner,
+        )
+        destroyed = []
+        window.connect("destroy", lambda *_args: destroyed.append(True))
+        self.button_by_label(window, "Verificar atualizações").clicked()
+
+        delete_event_was_blocked = window.emit("delete-event", None)
+
+        self.assertTrue(delete_event_was_blocked)
+        self.assertEqual(destroyed, [])
+        self.assertFalse(self.button_by_label(window, "Fechar").get_sensitive())
+        self.assertIn("aguarde", window.update_status.get_text().lower())
 
     def test_updateFailureShowsStageWithoutClaimingSuccess(self):
         project_updater = self.updater(can_apply=True, behind=1)
@@ -315,6 +371,10 @@ class ConfigurationWindowTests(unittest.TestCase):
 
         status = window.update_status.get_text().lower()
         self.assertIn("recarregar a sessão", status)
+        self.assertIs(
+            project_updater.apply_confirmed_update,
+            project_updater.check_result,
+        )
 
     def write_config(self, config):
         self.path.write_text(json.dumps(config), encoding="utf-8")

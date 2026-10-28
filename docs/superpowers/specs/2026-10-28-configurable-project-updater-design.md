@@ -47,14 +47,14 @@ Esta abordagem mantém operações locais no configurador, permite injetar o exe
 
 ### Aplicação confirmada
 
-Quando houver commits remotos em fast-forward, a tela mostrará o caminho e a quantidade de commits e oferecerá **Aplicar atualização** com diálogo de confirmação. Após a confirmação, a aplicação revalidará que a árvore está limpa e que a branch continua apta a fast-forward, então:
+Quando houver commits remotos em fast-forward, a tela mostrará o caminho e a quantidade de commits e oferecerá **Aplicar atualização** com diálogo de confirmação. A verificação registra os SHAs de `HEAD` e do upstream apresentados ao usuário. Após a confirmação, a aplicação buscará novamente e revalidará que ambos continuam iguais e que a árvore segue limpa e apta a fast-forward; se qualquer um mudou, pedirá uma nova verificação e confirmação. Para não buscar e incorporar silenciosamente commits posteriores ao diálogo, avançará até o SHA confirmado com `git merge --ff-only <sha>` (sem fetch implícito):
 
-1. Executará `git pull --ff-only` sem shell intermediário.
+1. Executará `git merge --ff-only <sha-confirmado>` sem shell intermediário.
 2. Executará `pnpm install --frozen-lockfile` e `pnpm build` na raiz do clone.
 3. Se o configurador tiver sido aberto da instalação Cinnamon ou GNOME conhecida, copiará somente os artefatos daquele frontend, incluindo `project_updates.py` para que a próxima abertura mantenha a funcionalidade. Se for aberto fora de uma instalação reconhecida, não copiará frontend.
 4. Solicitará `systemctl --user restart ai-limits-widget.service` pelo mecanismo de restart já usado pelo configurador.
 
-Não alterar a unidade systemd, configuração de contas, autenticação dos CLIs, cache ou dados dos perfis. A cópia dos arquivos de frontend não reiniciará o Shell; a tela avisará que uma recarga de sessão poderá ser necessária para ativar JavaScript já carregado. Se uma etapa posterior ao `git pull` falhar, não executar reset, limpeza nem rollback automático; informar explicitamente que o checkout avançou e qual etapa precisa de atenção. Se a cópia funcionar mas o restart falhar, informar que os arquivos foram atualizados, mas o daemon não foi confirmado como reiniciado.
+Não alterar a unidade systemd, configuração de contas, autenticação dos CLIs, cache ou dados dos perfis. A cópia dos arquivos de frontend não reiniciará o Shell; a tela avisará que uma recarga de sessão poderá ser necessária para ativar JavaScript já carregado. Se uma etapa posterior ao merge falhar, não executar reset, limpeza nem rollback automático; informar explicitamente que o checkout avançou e qual etapa precisa de atenção. Se a cópia funcionar mas o restart falhar, informar que os arquivos foram atualizados, mas o daemon não foi confirmado como reiniciado.
 
 ### Execução e erros
 

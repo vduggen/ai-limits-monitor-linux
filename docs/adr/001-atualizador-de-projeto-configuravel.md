@@ -25,11 +25,15 @@ preferência do caminho fica em
 fallback, separada de `accounts.json`.
 
 A aplicação só é permitida para uma árvore limpa e quando a branch local pode
-avançar por fast-forward. Após a confirmação, o configurador executa
-`git pull --ff-only`, `pnpm install --frozen-lockfile` e `pnpm build`, sincroniza
-somente o frontend reconhecido que abriu a janela e solicita o restart do serviço
-de usuário existente. A verificação usa `git fetch` e não altera arquivos de
-trabalho.
+avançar por fast-forward. A confirmação fica vinculada aos SHAs de `HEAD` e do
+upstream exibidos; se eles mudarem, a operação é interrompida para nova
+verificação e confirmação. Após revalidar, o configurador executa
+`git merge --ff-only <sha-confirmado>`, `pnpm install --frozen-lockfile` e
+`pnpm build`, sincroniza somente o frontend reconhecido que abriu a janela e
+solicita o restart do serviço de usuário existente. A verificação usa
+`git fetch` e não altera arquivos de trabalho. O merge usa o objeto já buscado
+em vez de `git pull`, cujo fetch implícito poderia avançar o upstream entre a
+confirmação e a aplicação.
 
 ## Alternativas consideradas
 
