@@ -13,6 +13,12 @@ from account_config import restart_user_service
 
 
 PROJECT_PACKAGE_NAME = "ai-limits-monitor-linux"
+CONFIGURATION_FILES = (
+    "configure.py",
+    "config_paths.py",
+    "account_config.py",
+    "project_updates.py",
+)
 
 
 def project_settings_path(
@@ -147,6 +153,106 @@ class UpdateCheck:
         return self.behind > 0 and self.ahead == 0 and not self.dirty
 
 
+class ProjectUpdateError(RuntimeError):
+    """A project update failed, with its stage and partial-state information."""
+
+    def __init__(self, stage: str, message: str, checkout_updated: bool):
+        super().__init__(message)
+        self.stage = stage
+        self.message = message
+        self.checkout_updated = checkout_updated
+
+
+@dataclass(frozen=True)
+class UpdateApplyResult:
+    """Successful update stages for the project and current frontend."""
+
+    project_path: Path
+    frontend_synced: bool
+    service_restarted: bool
+
+
+def detect_frontend_target(editor_path: Path) -> tuple[str, Path] | None:
+    """Recognize only the installed Cinnamon applet or GNOME extension."""
+    editor_directory = Path(editor_path).expanduser().resolve().parent
+    if (
+        editor_directory.name == "ai-limits-widget@vlduggen"
+        and editor_directory.parent.name == "applets"
+        and editor_directory.parent.parent.name == "cinnamon"
+    ):
+        return "cinnamon", editor_directory
+    if (
+        editor_directory.name == "ai-limits-monitor@vlduggen"
+        and editor_directory.parent.name == "extensions"
+        and editor_directory.parent.parent.name == "gnome-shell"
+    ):
+        return "gnome", editor_directory
+    return None
+
+
+def sync_installed_frontend(project_root: Path, editor_path: Path) -> bool:
+    """Copy source files for the frontend that launched the GTK editor."""
+    detected_frontend = detect_frontend_target(editor_path)
+    if detected_frontend is None:
+        return False
+
+    frontend, target = detected_frontend
+    source_root = Path(project_root)
+    if frontend == "cinnamon":
+        filenames = (
+            "metadata.json",
+            "applet.js",
+            "settings-schema.json",
+            *CONFIGURATION_FILES,
+            "claude.svg",
+            "codex.svg",
+        )
+        source_directory = source_root / "cinnamon"
+        configuration_directory = source_directory
+        snapshot_name = "ai_limits_snapshot.js"
+    else:
+        filenames = (
+            "metadata.json",
+            "extension.js",
+            "cache-events.js",
+            "claude.svg",
+            "codex.svg",
+        )
+        source_directory = source_root / "gnome"
+        configuration_directory = source_root / "cinnamon"
+        snapshot_name = "snapshot.js"
+
+    for filename in filenames:
+        _copy_file_atomically(source_directory / filename, target / filename)
+    if frontend == "gnome":
+        for filename in CONFIGURATION_FILES:
+            _copy_file_atomically(
+                configuration_directory / filename, target / filename
+            )
+    _copy_file_atomically(
+        source_root / "shared" / "snapshot.js", target / snapshot_name
+    )
+    return True
+
+
+def _copy_file_atomically(source: Path, destination: Path) -> None:
+    if not source.is_file():
+        raise FileNotFoundError(f"Arquivo da atualização não encontrado: {source}")
+    descriptor, temporary_path = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+    )
+    os.close(descriptor)
+    try:
+        shutil.copy2(source, temporary_path)
+        os.replace(temporary_path, destination)
+    except Exception:
+        try:
+            os.unlink(temporary_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 class ProjectUpdater:
     """Resolve the configured checkout and inspect its Git upstream."""
 
@@ -233,6 +339,103 @@ class ProjectUpdater:
             dirty=dirty,
             commits=commits,
         )
+
+    def apply_updates(self) -> UpdateApplyResult:
+        """Fast-forward, build, sync the active frontend, and restart the service."""
+        self._require_executable("git")
+        self._require_executable("pnpm")
+        try:
+            update_check = self.check_for_updates()
+        except (OSError, RuntimeError, ValueError) as error:
+            raise ProjectUpdateError("check", str(error), False) from error
+        if not update_check.can_apply:
+            reason = self._blocked_update_reason(update_check)
+            raise ProjectUpdateError("preflight", reason, False)
+
+        previous_head = self._run_git(["rev-parse", "HEAD"], timeout=10)
+        try:
+            self._run_git(["pull", "--ff-only"], timeout=60)
+        except RuntimeError as error:
+            checkout_updated = self._current_head() != previous_head
+            raise ProjectUpdateError("pull", str(error), checkout_updated) from error
+
+        self._run_pnpm(
+            ["install", "--frozen-lockfile"],
+            stage="install",
+            timeout=600,
+            checkout_updated=True,
+        )
+        self._run_pnpm(
+            ["build"], stage="build", timeout=180, checkout_updated=True
+        )
+
+        try:
+            frontend_synced = sync_installed_frontend(
+                self._project_path, self.editor_path
+            )
+        except (OSError, ProjectUpdateError) as error:
+            raise ProjectUpdateError("frontend", str(error), True) from error
+
+        try:
+            self.service_restart()
+        except (OSError, RuntimeError, TimeoutError, subprocess.SubprocessError) as error:
+            raise ProjectUpdateError("restart", str(error), True) from error
+
+        return UpdateApplyResult(
+            project_path=self._project_path,
+            frontend_synced=frontend_synced,
+            service_restarted=True,
+        )
+
+    def _require_executable(self, name: str) -> None:
+        if self.executable_lookup(name) is None:
+            raise ProjectUpdateError(
+                "preflight", f"O executável necessário não foi encontrado: {name}", False
+            )
+
+    @staticmethod
+    def _blocked_update_reason(update_check: UpdateCheck) -> str:
+        if update_check.dirty:
+            return "O clone contém alterações locais; resolva-as antes de aplicar a atualização."
+        if update_check.ahead > 0 and update_check.behind > 0:
+            return "A branch local divergiu do upstream; fast-forward não é possível."
+        if update_check.behind == 0:
+            return "Não há atualizações upstream para aplicar."
+        return "O clone não está em um estado seguro para fast-forward."
+
+    def _current_head(self) -> str:
+        try:
+            return self._run_git(["rev-parse", "HEAD"], timeout=10)
+        except RuntimeError:
+            return ""
+
+    def _run_pnpm(
+        self,
+        arguments: list[str],
+        *,
+        stage: str,
+        timeout: int,
+        checkout_updated: bool,
+    ) -> None:
+        if self._project_path is None:
+            raise ProjectUpdateError(stage, "Nenhum clone válido foi selecionado.", checkout_updated)
+        try:
+            result = self.command_runner(
+                ["pnpm", *arguments],
+                cwd=self._project_path,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=timeout,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            raise ProjectUpdateError(stage, str(error), checkout_updated) from error
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            if not detail:
+                detail = f"pnpm retornou código {result.returncode}"
+            raise ProjectUpdateError(stage, detail, checkout_updated)
 
     def _run_git(
         self,
