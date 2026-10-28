@@ -5,13 +5,14 @@ from datetime import datetime
 import os
 import shutil
 import subprocess
+from threading import Thread
 from pathlib import Path
 
 import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Pango", "1.0")
-from gi.repository import Gtk, Pango
+from gi.repository import GLib, Gtk, Pango
 
 from account_config import (
     add_account,
@@ -26,6 +27,7 @@ from account_config import (
     update_account_profile,
 )
 from config_paths import resolve_config_path
+from project_updates import ProjectUpdater
 
 
 APP_NAME = "AI Limits Monitor for Linux"
@@ -70,6 +72,18 @@ def read_config(path):
     return load_config(path)
 
 
+def run_in_background(operation, on_success, on_error):
+    def worker():
+        try:
+            result = operation()
+        except Exception as error:
+            GLib.idle_add(on_error, error)
+        else:
+            GLib.idle_add(on_success, result)
+
+    Thread(target=worker, name="project-update", daemon=True).start()
+
+
 class ConfigurationWindow(Gtk.Window):
     def __init__(
         self,
@@ -80,6 +94,10 @@ class ConfigurationWindow(Gtk.Window):
         executable_lookup=shutil.which,
         restart_service=restart_user_service,
         cache_path=None,
+        project_updater=None,
+        background_runner=None,
+        choose_project_directory=None,
+        confirm_update=None,
     ):
         super().__init__(title=f"{APP_NAME} — Contas")
         self.set_default_size(720, 560)
@@ -91,6 +109,26 @@ class ConfigurationWindow(Gtk.Window):
         self.executable_lookup = executable_lookup
         self.restart_service = restart_service
         self.cache_path = CACHE_PATH if cache_path is None else Path(cache_path)
+        self.project_updater = (
+            ProjectUpdater(path, Path(__file__).resolve())
+            if project_updater is None
+            else project_updater
+        )
+        self.background_runner = (
+            run_in_background if background_runner is None else background_runner
+        )
+        self.choose_project_directory = (
+            self._choose_project_directory
+            if choose_project_directory is None
+            else choose_project_directory
+        )
+        self.confirm_update = (
+            self._confirm_project_update
+            if confirm_update is None
+            else confirm_update
+        )
+        self._update_check = None
+        self._update_busy = False
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.add(outer)
@@ -123,6 +161,8 @@ class ConfigurationWindow(Gtk.Window):
         scroll.add(self.account_box)
         self._render_accounts()
 
+        self._render_project_updates(outer)
+
         self.status = Gtk.Label(label=f"Arquivo: {path}")
         self.status.set_xalign(0)
         self.status.set_ellipsize(Pango.EllipsizeMode.END)
@@ -137,6 +177,230 @@ class ConfigurationWindow(Gtk.Window):
         save_button.get_style_context().add_class("suggested-action")
         save_button.connect("clicked", self.on_save)
         actions.pack_end(save_button, False, False, 0)
+
+    def _render_project_updates(self, parent):
+        self.update_section = Gtk.Frame(label="Atualizações")
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        content.set_border_width(10)
+        self.update_section.add(content)
+        parent.pack_start(self.update_section, False, False, 0)
+
+        self.project_path_label = Gtk.Label()
+        self.project_path_label.set_xalign(0)
+        self.project_path_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        self.project_path_label.set_selectable(True)
+        content.pack_start(self.project_path_label, False, False, 0)
+
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        content.pack_start(buttons, False, False, 0)
+        self.choose_project_button = Gtk.Button.new_with_label("Escolher projeto…")
+        self.choose_project_button.connect("clicked", self._on_choose_project)
+        buttons.pack_start(self.choose_project_button, False, False, 0)
+        self.check_updates_button = Gtk.Button.new_with_label("Verificar atualizações")
+        self.check_updates_button.connect("clicked", self._on_check_updates)
+        buttons.pack_start(self.check_updates_button, False, False, 0)
+        self.apply_update_button = Gtk.Button.new_with_label("Aplicar atualização")
+        self.apply_update_button.connect("clicked", self._on_apply_update)
+        buttons.pack_start(self.apply_update_button, False, False, 0)
+
+        self.update_status = Gtk.Label()
+        self.update_status.set_xalign(0)
+        self.update_status.set_line_wrap(True)
+        content.pack_start(self.update_status, False, False, 0)
+
+        self._refresh_project_path_label()
+        if self.project_updater.project_path is not None:
+            self.update_status.set_text("Verifique se há commits disponíveis.")
+        else:
+            detail = getattr(self.project_updater, "project_path_error", None)
+            self.update_status.set_text(
+                f"Escolha a pasta raiz do clone. {detail}" if detail else
+                "Escolha a pasta raiz do clone para verificar atualizações."
+            )
+        self._refresh_project_update_controls()
+
+    def _refresh_project_path_label(self):
+        project_path = self.project_updater.project_path
+        self.project_path_label.set_text(
+            str(project_path) if project_path is not None else "Projeto não selecionado"
+        )
+
+    def _refresh_project_update_controls(self):
+        available = not self._update_busy
+        has_project = self.project_updater.project_path is not None
+        self.choose_project_button.set_sensitive(available)
+        self.check_updates_button.set_sensitive(available and has_project)
+        can_apply = (
+            self._update_check is not None and self._update_check.can_apply
+        )
+        self.apply_update_button.set_sensitive(available and can_apply)
+
+    def _choose_project_directory(self):
+        dialog = Gtk.FileChooserDialog(
+            title="Escolher pasta do projeto",
+            parent=self,
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+        )
+        dialog.add_button("Cancelar", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Escolher", Gtk.ResponseType.ACCEPT)
+        current_path = self.project_updater.project_path
+        current_folder = (
+            current_path if current_path is not None and current_path.is_dir() else self.home
+        )
+        dialog.set_current_folder(str(current_folder))
+        try:
+            response = dialog.run()
+            selected_path = (
+                dialog.get_filename()
+                if response == Gtk.ResponseType.ACCEPT
+                else None
+            )
+        finally:
+            dialog.destroy()
+        return Path(selected_path) if selected_path else None
+
+    def _confirm_project_update(self, update_check):
+        commits = "\n".join(update_check.commits)
+        details = (
+            f"{update_check.behind} commit(s) serão aplicados em:\n"
+            f"{update_check.project_path}\n\n{commits}\n\n"
+            "O clone será avançado, as dependências instaladas, o projeto compilado "
+            "e o serviço do usuário reiniciado."
+        )
+        dialog = Gtk.MessageDialog(
+            parent=self,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.NONE,
+            text="Aplicar atualização do projeto?",
+        )
+        dialog.format_secondary_text(details)
+        dialog.add_button("Cancelar", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Aplicar", Gtk.ResponseType.ACCEPT)
+        try:
+            return dialog.run() == Gtk.ResponseType.ACCEPT
+        finally:
+            dialog.destroy()
+
+    def _start_project_operation(self, operation, on_success, *, failure_stage):
+        if self._update_busy:
+            return
+        self._update_busy = True
+        self._refresh_project_update_controls()
+        try:
+            self.background_runner(
+                operation,
+                on_success,
+                lambda error: self._on_project_update_error(error, failure_stage),
+            )
+        except Exception as error:
+            self._on_project_update_error(error, failure_stage)
+
+    def _on_choose_project(self, _button):
+        if self._update_busy:
+            return
+        selected_path = self.choose_project_directory()
+        if selected_path is None:
+            return
+        self._update_check = None
+        self.update_status.set_text("Validando a pasta do projeto…")
+        self._start_project_operation(
+            lambda: self.project_updater.set_project_path(selected_path),
+            self._on_project_path_selected,
+            failure_stage="caminho",
+        )
+
+    def _on_project_path_selected(self, _project_path):
+        self._update_busy = False
+        self._refresh_project_path_label()
+        self.update_status.set_text("Projeto selecionado. Verifique se há atualizações.")
+        self._refresh_project_update_controls()
+
+    def _on_check_updates(self, _button):
+        if self._update_busy or self.project_updater.project_path is None:
+            return
+        self._update_check = None
+        self.update_status.set_text("Verificando atualizações…")
+        self._start_project_operation(
+            self.project_updater.check_for_updates,
+            self._on_updates_checked,
+            failure_stage="verificação",
+        )
+
+    def _on_updates_checked(self, update_check):
+        self._update_busy = False
+        self._update_check = update_check
+        self._refresh_project_path_label()
+        self.update_status.set_text(self._format_update_check(update_check))
+        self._refresh_project_update_controls()
+
+    @staticmethod
+    def _format_update_check(update_check):
+        if update_check.behind == 0 and update_check.ahead == 0:
+            return "Nenhuma atualização disponível."
+        if update_check.dirty:
+            return (
+                f"{update_check.behind} atualização(ões) disponível(is), mas o clone "
+                "contém alterações locais. Resolva-as antes de aplicar."
+            )
+        if update_check.ahead and update_check.behind:
+            return "A branch local divergiu do upstream; fast-forward não é possível."
+        if update_check.can_apply:
+            summaries = "\n".join(update_check.commits)
+            return (
+                f"{update_check.behind} atualização(ões) disponível(is):\n{summaries}"
+            )
+        if update_check.ahead:
+            return "A branch local contém commits que não estão no upstream."
+        return "O clone não está em um estado seguro para fast-forward."
+
+    def _on_apply_update(self, _button):
+        if (
+            self._update_busy
+            or self._update_check is None
+            or not self._update_check.can_apply
+        ):
+            return
+        update_check = self._update_check
+        if not self.confirm_update(update_check):
+            return
+        self._update_check = None
+        self.update_status.set_text("Aplicando atualização confirmada…")
+        self._start_project_operation(
+            self.project_updater.apply_updates,
+            self._on_update_applied,
+            failure_stage="aplicação",
+        )
+
+    def _on_update_applied(self, result):
+        self._update_busy = False
+        self._refresh_project_path_label()
+        if result.frontend_synced:
+            self.update_status.set_text(
+                "Atualização aplicada e serviço reiniciado. Para ativar o JavaScript "
+                "atualizado, pode ser necessário recarregar a sessão."
+            )
+        else:
+            self.update_status.set_text(
+                "Clone atualizado e serviço reiniciado, mas a instalação do frontend "
+                "não foi reconhecida e não foi sincronizada."
+            )
+        self._refresh_project_update_controls()
+
+    def _on_project_update_error(self, error, failure_stage):
+        self._update_busy = False
+        self._update_check = None
+        stage = getattr(error, "stage", failure_stage)
+        message = getattr(error, "message", str(error))
+        status = f"Falha na etapa {stage}: {message}"
+        if getattr(error, "checkout_updated", False):
+            status += ". O clone avançou; nenhum rollback automático foi executado"
+        if stage == "restart":
+            if getattr(error, "frontend_synced", False):
+                status += ". Os arquivos do frontend foram sincronizados"
+            status += ". O serviço não teve o reinício confirmado"
+        self.update_status.set_text(status)
+        self._refresh_project_update_controls()
 
     @staticmethod
     def _provider_label(provider):

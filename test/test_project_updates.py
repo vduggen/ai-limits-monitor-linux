@@ -434,6 +434,32 @@ class ProjectUpdateApplyTests(TemporaryProjectGitRepository):
         self.assertFalse((target / "applet.js").exists())
         self.assertTrue((self.project / "remote.txt").exists())
 
+    def test_restartFailureReportsCompletedFrontendSync(self):
+        self.push_remote_commit()
+        editor_path = self.installed_editor("cinnamon")
+        target = editor_path.parent
+
+        def failed_restart():
+            raise RuntimeError("service unavailable")
+
+        updater = self.updater(
+            editor_path=editor_path,
+            command_runner=self.command_runner([]),
+            executable_lookup=self.available_executables,
+            service_restart=failed_restart,
+        )
+
+        with self.assertRaises(RuntimeError) as raised:
+            self.apply(updater)
+
+        self.assertEqual(raised.exception.stage, "restart")
+        self.assertTrue(raised.exception.checkout_updated)
+        self.assertTrue(raised.exception.frontend_synced)
+        self.assertEqual(
+            (target / "applet.js").read_text(encoding="utf-8"),
+            "updated cinnamon applet\n",
+        )
+
     def test_applyUpdatesSyncsOpenedGnomeFrontend(self):
         self.push_remote_commit()
         editor_path = self.installed_editor("gnome")

@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import gi
@@ -16,6 +17,7 @@ from gi.repository import Gtk
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cinnamon"))
 import configure
 from configure import ConfigurationWindow
+from project_updates import ProjectUpdateError
 
 
 def descendants(widget):
@@ -23,6 +25,34 @@ def descendants(widget):
     if isinstance(widget, Gtk.Container):
         for child in widget.get_children():
             yield from descendants(child)
+
+
+class FakeProjectUpdater:
+    def __init__(self, project_path):
+        self.project_path = Path(project_path)
+        self.set_project_path_calls = []
+        self.check_result = None
+        self.apply_result = SimpleNamespace(
+            frontend_synced=False,
+            service_restarted=True,
+        )
+        self.apply_error = None
+        self.apply_calls = 0
+
+    def set_project_path(self, path):
+        selected_path = Path(path)
+        self.set_project_path_calls.append(selected_path)
+        self.project_path = selected_path
+        return selected_path
+
+    def check_for_updates(self):
+        return self.check_result
+
+    def apply_updates(self):
+        self.apply_calls += 1
+        if self.apply_error is not None:
+            raise self.apply_error
+        return self.apply_result
 
 
 class ConfigurationWindowTests(unittest.TestCase):
@@ -43,7 +73,28 @@ class ConfigurationWindowTests(unittest.TestCase):
             window.destroy()
         self.temporary_directory.cleanup()
 
-    def make_window(self, config, executable_lookup, restart_service=None):
+    def make_window(
+        self,
+        config,
+        executable_lookup,
+        restart_service=None,
+        *,
+        project_updater=None,
+        background_runner=None,
+        choose_project_directory=None,
+        confirm_update=None,
+    ):
+        dependencies = {
+            "project_updater": project_updater,
+            "background_runner": background_runner,
+            "choose_project_directory": choose_project_directory,
+            "confirm_update": confirm_update,
+        }
+        dependencies = {
+            name: dependency
+            for name, dependency in dependencies.items()
+            if dependency is not None
+        }
         try:
             window = ConfigurationWindow(
                 self.path,
@@ -54,11 +105,216 @@ class ConfigurationWindowTests(unittest.TestCase):
                     lambda: self.restart_calls.append("restart")
                 ),
                 cache_path=self.cache_path,
+                **dependencies,
             )
         except TypeError as error:
             self.fail(f"ConfigurationWindow lacks injectable account-manager behavior: {error}")
         self.windows.append(window)
         return window
+
+    def updater(self, *, can_apply=False, behind=0, dirty=False):
+        project_updater = FakeProjectUpdater(self.root / "checkout with spaces")
+        project_updater.check_result = SimpleNamespace(
+            project_path=project_updater.project_path,
+            ahead=0,
+            behind=behind,
+            dirty=dirty,
+            commits=("abc1234 atualizacao disponível",) if behind else (),
+            can_apply=can_apply,
+        )
+        return project_updater
+
+    @staticmethod
+    def immediate_background_runner(operation, on_success, on_error):
+        try:
+            on_success(operation())
+        except Exception as error:
+            on_error(error)
+
+    def basic_config(self):
+        profile = self.home / ".codex"
+        profile.mkdir(exist_ok=True)
+        return {"accounts": [
+            self.account_config("codex", "codex-default", "Codex pessoal", profile),
+        ]}
+
+    def test_updateSectionShowsResolvedProjectPath(self):
+        project_updater = self.updater()
+        window = self.make_window(
+            self.basic_config(),
+            lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+            background_runner=self.immediate_background_runner,
+        )
+
+        labels = [
+            widget.get_text()
+            for widget in descendants(window)
+            if isinstance(widget, Gtk.Label)
+        ]
+        frames = [
+            widget.get_label()
+            for widget in descendants(window)
+            if isinstance(widget, Gtk.Frame)
+        ]
+
+        self.assertIn("Atualizações", frames)
+        self.assertIn(str(project_updater.project_path), labels)
+
+    def test_chooseProjectPersistsCustomPath(self):
+        project_updater = self.updater()
+        selected_path = self.root / "another checkout"
+        window = self.make_window(
+            self.basic_config(),
+            lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+            background_runner=self.immediate_background_runner,
+            choose_project_directory=lambda: selected_path,
+        )
+
+        self.button_by_label(window, "Escolher projeto…").clicked()
+
+        self.assertEqual(project_updater.set_project_path_calls, [selected_path])
+        self.assertEqual(project_updater.project_path, selected_path)
+        self.assertIn(
+            str(selected_path),
+            [
+                widget.get_text()
+                for widget in descendants(window)
+                if isinstance(widget, Gtk.Label)
+            ],
+        )
+
+    def test_checkButtonShowsAvailableUpdatesAndEnablesApply(self):
+        project_updater = self.updater(can_apply=True, behind=1)
+        window = self.make_window(
+            self.basic_config(),
+            lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+            background_runner=self.immediate_background_runner,
+        )
+        apply_button = self.button_by_label(window, "Aplicar atualização")
+        self.assertFalse(apply_button.get_sensitive())
+
+        self.button_by_label(window, "Verificar atualizações").clicked()
+
+        self.assertTrue(apply_button.get_sensitive())
+        status = window.update_status.get_text()
+        self.assertIn("1", status)
+        self.assertIn("abc1234 atualizacao disponível", status)
+
+    def test_checkWithNoUpdatesKeepsApplyDisabled(self):
+        project_updater = self.updater()
+        window = self.make_window(
+            self.basic_config(),
+            lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+            background_runner=self.immediate_background_runner,
+        )
+
+        self.button_by_label(window, "Verificar atualizações").clicked()
+
+        self.assertFalse(self.button_by_label(window, "Aplicar atualização").get_sensitive())
+        self.assertIn("Nenhuma atualização", window.update_status.get_text())
+
+    def test_applyRequiresConfirmation(self):
+        project_updater = self.updater(can_apply=True, behind=1)
+        window = self.make_window(
+            self.basic_config(),
+            lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+            background_runner=self.immediate_background_runner,
+            confirm_update=lambda _check: False,
+        )
+        self.button_by_label(window, "Verificar atualizações").clicked()
+
+        self.button_by_label(window, "Aplicar atualização").clicked()
+
+        self.assertEqual(project_updater.apply_calls, 0)
+
+    def test_backgroundOperationDisablesDuplicateActions(self):
+        project_updater = self.updater(can_apply=True, behind=1)
+        pending_operations = []
+
+        def queued_background_runner(operation, on_success, on_error):
+            pending_operations.append((operation, on_success, on_error))
+
+        window = self.make_window(
+            self.basic_config(),
+            lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+            background_runner=queued_background_runner,
+        )
+        check_button = self.button_by_label(window, "Verificar atualizações")
+        check_button.clicked()
+        check_button.clicked()
+
+        self.assertEqual(len(pending_operations), 1)
+        self.assertFalse(check_button.get_sensitive())
+        self.assertFalse(self.button_by_label(window, "Escolher projeto…").get_sensitive())
+        self.assertFalse(self.button_by_label(window, "Aplicar atualização").get_sensitive())
+
+    def test_updateFailureShowsStageWithoutClaimingSuccess(self):
+        project_updater = self.updater(can_apply=True, behind=1)
+        project_updater.apply_error = ProjectUpdateError("build", "build failed", True)
+        window = self.make_window(
+            self.basic_config(),
+            lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+            background_runner=self.immediate_background_runner,
+            confirm_update=lambda _check: True,
+        )
+        self.button_by_label(window, "Verificar atualizações").clicked()
+
+        self.button_by_label(window, "Aplicar atualização").clicked()
+
+        status = window.update_status.get_text()
+        self.assertIn("build", status)
+        self.assertIn("build failed", status)
+        self.assertIn("avançou", status)
+        self.assertNotIn("Atualização concluída", status)
+
+    def test_restartFailureShowsServiceWasNotConfirmed(self):
+        project_updater = self.updater(can_apply=True, behind=1)
+        project_updater.apply_error = ProjectUpdateError(
+            "restart", "service unavailable", True, frontend_synced=True
+        )
+        window = self.make_window(
+            self.basic_config(),
+            lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+            background_runner=self.immediate_background_runner,
+            confirm_update=lambda _check: True,
+        )
+        self.button_by_label(window, "Verificar atualizações").clicked()
+
+        self.button_by_label(window, "Aplicar atualização").clicked()
+
+        status = window.update_status.get_text()
+        self.assertIn("restart", status)
+        self.assertIn("Os arquivos do frontend foram sincronizados", status)
+        self.assertIn("não teve o reinício confirmado", status)
+        self.assertNotIn("Atualização aplicada", status)
+
+    def test_updateSuccessWarnsShellReloadMayBeNeeded(self):
+        project_updater = self.updater(can_apply=True, behind=1)
+        project_updater.apply_result = SimpleNamespace(
+            frontend_synced=True,
+            service_restarted=True,
+        )
+        window = self.make_window(
+            self.basic_config(),
+            lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+            background_runner=self.immediate_background_runner,
+            confirm_update=lambda _check: True,
+        )
+        self.button_by_label(window, "Verificar atualizações").clicked()
+
+        self.button_by_label(window, "Aplicar atualização").clicked()
+
+        status = window.update_status.get_text().lower()
+        self.assertIn("recarregar a sessão", status)
 
     def write_config(self, config):
         self.path.write_text(json.dumps(config), encoding="utf-8")

@@ -156,11 +156,18 @@ class UpdateCheck:
 class ProjectUpdateError(RuntimeError):
     """A project update failed, with its stage and partial-state information."""
 
-    def __init__(self, stage: str, message: str, checkout_updated: bool):
+    def __init__(
+        self,
+        stage: str,
+        message: str,
+        checkout_updated: bool,
+        frontend_synced: bool | None = None,
+    ):
         super().__init__(message)
         self.stage = stage
         self.message = message
         self.checkout_updated = checkout_updated
+        self.frontend_synced = frontend_synced
 
 
 @dataclass(frozen=True)
@@ -379,7 +386,9 @@ class ProjectUpdater:
         try:
             self.service_restart()
         except (OSError, RuntimeError, TimeoutError, subprocess.SubprocessError) as error:
-            raise ProjectUpdateError("restart", str(error), True) from error
+            raise ProjectUpdateError(
+                "restart", str(error), True, frontend_synced=frontend_synced
+            ) from error
 
         return UpdateApplyResult(
             project_path=self._project_path,
