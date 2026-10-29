@@ -1,5 +1,10 @@
 # AI Limits Monitor for Linux — Cinnamon
 
+O coletor prioriza fontes locais e conserva quota útil com aviso/idade em falhas.
+O novo visual foi reservado ao GNOME; Cinnamon recebe compatibilidade mínima.
+Veja [limites, opt-in e rollback](../docs/local-first-monitoring.md). A apresentação
+de quota retida ainda exige smoke test em uma sessão Cinnamon real.
+
 O applet lê o snapshot gerado pelo daemon em:
 
 ```text
@@ -48,6 +53,16 @@ tela, você pode ativar/desativar/remover contas e editar rótulos e modo (`% re
 `% usado`). A tela avisa quando o último snapshot observa o mesmo e-mail em mais
 de um perfil. Mantenha pelo menos uma conta monitorada. **Salvar** grava tudo
 junto e solicita uma única atualização do serviço do usuário.
+Cada conta também possui modo de coleta e intervalo remoto. Os novos controles
+preservam as demais configurações. A ponte Claude é opt-in: revise o preview e
+confirme a instalação separadamente. Team pode não fornecer quota pela statusline.
+
+Use **Configurar…** no popup para abrir o gerenciador GTK. Ele detecta os perfis
+padrão `~/.claude` e `~/.codex` quando o CLI correspondente está disponível e
+permite escolher outras pastas de perfil existentes. Você pode editar rótulo e
+modo (`% restante` ou `% usado`), adicionar perfis extras e remover contas; a
+última conta não pode ser removida. **Salvar** grava tudo junto e solicita uma
+única atualização do serviço do usuário.
 
 A seção **Atualizações** verifica commits upstream do clone configurado. Você
 pode escolher a pasta do projeto; essa preferência fica fora de `accounts.json`.

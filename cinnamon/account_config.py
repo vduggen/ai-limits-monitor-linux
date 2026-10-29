@@ -18,6 +18,7 @@ _PROVIDER_PROFILE_KEYS = {
     "codex": (".codex", "homeDir"),
 }
 _DISPLAY_MODES = {"remaining", "used"}
+_COLLECTION_MODES = {"hybrid", "local-only", "remote-only"}
 
 
 def provider_cli_available(
@@ -94,6 +95,22 @@ def _validate_config(config: dict[str, Any]) -> None:
             raise ValueError(f"Modo de exibição inválido na conta '{account_id}'.")
         if "enabled" in account and not isinstance(account["enabled"], bool):
             raise ValueError(f"Estado inválido na conta '{account_id}'.")
+        collection_mode = account.get("collectionMode")
+        if "collectionMode" in account and collection_mode not in _COLLECTION_MODES:
+            raise ValueError(f"Modo de coleta inválido na conta '{account_id}'.")
+        remote_interval = account.get("remotePollIntervalSeconds")
+        if "remotePollIntervalSeconds" in account and (
+            type(remote_interval) is not int or remote_interval <= 0
+        ):
+            raise ValueError(f"Intervalo remoto inválido na conta '{account_id}'.")
+        external_usage_path = account.get("externalUsagePath")
+        if "externalUsagePath" in account and (
+            provider != "claude"
+            or not isinstance(external_usage_path, str)
+            or not external_usage_path.strip()
+            or not Path(external_usage_path).is_absolute()
+        ):
+            raise ValueError(f"Caminho externo Claude inválido na conta '{account_id}'.")
         if account_id in identifiers:
             raise ValueError(f"ID de conta duplicado: {account_id}")
         identifiers.add(account_id)
@@ -174,6 +191,41 @@ def update_account(
         raise ValueError(f"Conta não encontrada: {account_id}")
     account["label"] = label.strip()
     account["displayMode"] = display_mode
+    _validate_config(updated)
+    return updated
+
+
+def update_collection_settings(
+    config: dict[str, Any],
+    account_id: str,
+    *,
+    collection_mode: str,
+    remote_poll_interval_seconds: int | None,
+    external_usage_path: str | None = None,
+) -> dict[str, Any]:
+    updated = copy.deepcopy(config)
+    _validate_config(updated)
+    if collection_mode not in _COLLECTION_MODES:
+        raise ValueError("Modo de coleta inválido.")
+    if remote_poll_interval_seconds is not None and (
+        type(remote_poll_interval_seconds) is not int or remote_poll_interval_seconds <= 0
+    ):
+        raise ValueError("Intervalo remoto precisa ser um inteiro positivo.")
+
+    account = next((item for item in updated["accounts"] if item["id"] == account_id), None)
+    if account is None:
+        raise ValueError("Conta não encontrada.")
+    account["collectionMode"] = collection_mode
+    if remote_poll_interval_seconds is None:
+        account.pop("remotePollIntervalSeconds", None)
+    else:
+        account["remotePollIntervalSeconds"] = remote_poll_interval_seconds
+    if external_usage_path:
+        if account["provider"] != "claude" or not Path(external_usage_path).is_absolute():
+            raise ValueError("Selecione um caminho absoluto de exportação Claude.")
+        account["externalUsagePath"] = external_usage_path
+    else:
+        account.pop("externalUsagePath", None)
     _validate_config(updated)
     return updated
 

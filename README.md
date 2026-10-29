@@ -8,9 +8,10 @@ com suporte a múltiplas contas e períodos de uso.
 
 ## Recursos
 
-- Claude: prioriza cotas locais recentes entregues ao `statusLine`; usa o `get_usage`
-  do Claude Agent SDK como fallback limitado por perfil;
-- Codex: inicia `codex app-server` e consulta `account/rateLimits/read`;
+- Claude: combina observações locais recentes do Desktop e da statusline opt-in
+  com `get_usage` do Claude Agent SDK como fallback coordenado por perfil;
+- Codex: combina eventos locais dos rollouts com `account/rateLimits/read` do
+  `codex app-server` como fallback;
 - múltiplas contas Claude e Codex, isoladas por `CLAUDE_CONFIG_DIR` e `CODEX_HOME`;
 - gerenciador GTK para adicionar ou trocar perfis, ativar/desativar/remover contas,
   editar rótulos/modo de exibição e sinalizar e-mails repetidos no último snapshot;
@@ -154,8 +155,11 @@ Para Codex, use `homeDir` no lugar de `configDir`:
 
 Use `displayMode: "used"` para mostrar o percentual consumido ou
 `displayMode: "remaining"` para mostrar o percentual restante. O padrão é
-`remaining`. `pollIntervalSeconds` controla a frequência das consultas, e
-`probeTimeoutSeconds` controla o tempo máximo de cada conta.
+`remaining`. `collectionMode` aceita `hybrid` (padrão), `local-only` ou
+`remote-only`. Sem intervalo explícito, a política remota usa 600 segundos para
+Claude e 120 para Codex. `remotePollIntervalSeconds` substitui esse padrão por
+conta; o `pollIntervalSeconds` global legado continua aceito quando explícito.
+`probeTimeoutSeconds` controla o tempo máximo de cada consulta.
 
 ### Claude: fontes locais e fallback OAuth
 
@@ -256,8 +260,17 @@ Não configure `statusLine.refreshInterval` apenas para tentar atualizar cotas:
 essa opção executa o script novamente com o último JSON recebido, não solicita
 uma leitura nova à Anthropic. Como o coletor registra o momento da execução,
 reexecuções periódicas poderiam fazer uma amostra antiga parecer recente.
+Veja [monitoramento local prioritário](docs/local-first-monitoring.md) para modos
+de coleta, integração reversível, cooldown, diagnóstico e implantação controlada.
 
 ## Executar e instalar o serviço
+
+A integração local Claude (opt-in) recebe apenas os percentuais de quota da
+statusline e escreve snapshots privados por perfil/sessão. Ela não consulta a
+API, não lê tokens e preserva o JSON original para o comando anterior. O
+instalador exige preview e confirmação; não habilite sem revisar a compatibilidade
+do comando anterior com `/bin/sh`. A gravação local não confirma uma medição
+remota nova. Configurações de projeto podem substituir a integração de usuário.
 
 Para uma consulta única ou execução contínua:
 
@@ -373,7 +386,8 @@ em [`cinnamon/BRAND-SOURCES.md`](cinnamon/BRAND-SOURCES.md).
 
 - as APIs de uso usadas pelo Claude Agent SDK e pelo Codex app-server são
   experimentais ou internas e podem mudar;
-- o daemon faz uma consulta completa por conta em cada ciclo;
+- observações locais não garantem refletir uso externo ao CLI; a fonte e a idade
+  por janela devem ser consideradas, não apenas a publicação do snapshot;
 - a disponibilidade dos períodos depende do que cada provedor reporta;
 - contas autenticadas somente por API key não expõem limites de assinatura e são
   tratadas como `unsupported`.

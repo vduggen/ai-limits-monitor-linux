@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { AccountConfig, AppConfig } from "./shared/types.js";
+import type { AccountConfig, AppConfig, CollectionMode } from "./shared/types.js";
 
 const DEFAULT_CONFIG_PATH = path.resolve(process.cwd(), "config/accounts.json");
 
@@ -19,6 +19,9 @@ function normalizeAccount(account: AccountConfig): AccountConfig {
     ...(account.homeDir ? { homeDir: expandHome(account.homeDir) } : {}),
     ...(account.statusLinePath
       ? { statusLinePath: path.resolve(expandHome(account.statusLinePath)) }
+      : {}),
+    ...(account.externalUsagePath
+      ? { externalUsagePath: path.resolve(expandHome(account.externalUsagePath)) }
       : {}),
   };
 }
@@ -43,12 +46,27 @@ export function forcedOAuthRefreshPath(): string {
   return `${cachePath()}.force-oauth`;
 }
 
-export async function loadConfig(): Promise<AppConfig> {
-  const raw = await readFile(configPath(), "utf8");
+export function resolveCollectionPolicy(account: AccountConfig, config: Partial<AppConfig>): {
+  mode: CollectionMode;
+  remoteIntervalSeconds: number;
+  usesLegacyInterval: boolean;
+} {
+  return {
+    mode: account.collectionMode ?? "hybrid",
+    remoteIntervalSeconds: account.remotePollIntervalSeconds
+      ?? config.pollIntervalSeconds
+      ?? (account.provider === "claude" ? 600 : 120),
+    usesLegacyInterval: account.remotePollIntervalSeconds === undefined
+      && config.pollIntervalSeconds !== undefined,
+  };
+}
+
+export async function loadConfig(filePath = configPath()): Promise<AppConfig> {
+  const raw = await readFile(filePath, "utf8");
   const parsed: unknown = JSON.parse(raw);
 
   if (!parsed || typeof parsed !== "object") {
-    throw new Error(`Configuração inválida: ${configPath()}`);
+    throw new Error(`Configuração inválida: ${filePath}`);
   }
 
   const value = parsed as Partial<AppConfig>;
@@ -61,6 +79,18 @@ export async function loadConfig(): Promise<AppConfig> {
       throw new Error("Conta inválida na configuração.");
     }
     const candidate = account as AccountConfig;
+    if (candidate.collectionMode !== undefined
+      && !["hybrid", "local-only", "remote-only"].includes(candidate.collectionMode)) {
+      throw new Error(`A conta '${candidate.id}' precisa usar um modo de coleta válido.`);
+    }
+    if (candidate.remotePollIntervalSeconds !== undefined
+      && (!Number.isSafeInteger(candidate.remotePollIntervalSeconds) || candidate.remotePollIntervalSeconds <= 0)) {
+      throw new Error(`A conta '${candidate.id}' precisa de um intervalo remoto inteiro positivo.`);
+    }
+    if (candidate.externalUsagePath !== undefined
+      && (candidate.provider !== "claude" || typeof candidate.externalUsagePath !== "string" || !candidate.externalUsagePath.trim())) {
+      throw new Error(`A conta '${candidate.id}' precisa de um caminho externo Claude válido.`);
+    }
     if (!candidate.id || !candidate.label || !candidate.provider) {
       throw new Error("Cada conta precisa de id, label e provider.");
     }
@@ -89,7 +119,7 @@ export async function loadConfig(): Promise<AppConfig> {
     pollIntervalSeconds:
       typeof value.pollIntervalSeconds === "number" && value.pollIntervalSeconds > 0
         ? value.pollIntervalSeconds
-        : 60,
+        : undefined,
     probeTimeoutSeconds:
       typeof value.probeTimeoutSeconds === "number" && value.probeTimeoutSeconds > 0
         ? value.probeTimeoutSeconds

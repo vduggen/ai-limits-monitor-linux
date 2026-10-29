@@ -162,6 +162,7 @@ function parseUsage(
     displayMode: displayModeForAccount(account),
     plan: snapshot.planType ?? accountInfo?.planType,
     email: accountInfo?.email,
+    identityId: response.accountId ?? (accountInfo?.email ? `email:${accountInfo.email.toLowerCase()}` : undefined),
     windows,
     checkedAt,
   };
@@ -212,11 +213,13 @@ export async function readCodexUsage(
         error: "Contas via API key não expõem os limites da assinatura Codex.",
       };
     }
-    const limits = await process.request<RateLimitsResponse>(
-      "account/rateLimits/read",
-      null,
-      Math.min(timeoutMs, 3_000),
-    );
+    let limits: RateLimitsResponse;
+    try {
+      limits = await process.request<RateLimitsResponse>("account/rateLimits/read", { excludeResetCreditDetails: true }, timeoutMs);
+    } catch (error) {
+      if (!(error instanceof Error) || !/unknown field.*excludeResetCreditDetails|unrecognized.*excludeResetCreditDetails/i.test(error.message)) throw error;
+      limits = await process.request<RateLimitsResponse>("account/rateLimits/read", null, timeoutMs);
+    }
     return parseUsage(account, accountResponse, limits, checkedAt);
   } catch (error) {
     return {

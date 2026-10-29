@@ -1,0 +1,26 @@
+/* Native St CSS: scoped utilities and compact hierarchy, no web runtime. */
+.ai-limits-dashboard { width: 360px; max-height: 380px; }
+.ai-limits-dashboard-title { font-size: 1.15em; font-weight: 700; padding: 4px 4px 8px; }
+.ai-limits-card { spacing: 4px; margin-top: 6px; padding: 8px; border-radius: 14px; background-color: rgba(128,128,128,0.08); border: 1px solid rgba(128,128,128,0.18); }
+.ai-limits-card-header { spacing: 7px; padding-bottom: 3px; }
+.ai-limits-provider-logo { padding: 2px; }
+.ai-limits-title { font-weight: 700; padding-top: 2px; }
+.ai-limits-mode { font-size: 0.72em; opacity: 0.65; padding-top: 4px; }
+.ai-limits-windows { spacing: 14px; }
+.ai-limits-window { spacing: 3px; }
+.ai-limits-window-heading { spacing: 8px; }
+.ai-limits-window-name { font-size: 0.9em; }
+.ai-limits-percent { font-weight: 700; font-size: 1em; }
+.ai-limits-window-time { font-size: 0.72em; opacity: 0.7; }
+.ai-limits-detail { font-size: 0.75em; opacity: 0.7; }
+.ai-limits-details { spacing: 6px; padding-top: 6px; border-top: 1px solid rgba(128,128,128,0.2); }
+.ai-limits-details-button { font-size: 0.75em; text-align: left; padding: 2px 0; border-radius: 5px; color: inherit; }
+.ai-limits-details-button:hover, .ai-limits-details-button:focus { background-color: rgba(128,128,128,0.16); }
+.ai-limits-alert { font-size: 0.85em; color: #d99b26; padding-top: 3px; }
+.ai-limits-track { height: 4px; border-radius: 2px; background-color: rgba(128,128,128,0.22); }
+.ai-limits-fill { height: 4px; border-radius: 2px; background-color: #49ad83; }
+.ai-limits-warning .ai-limits-fill { background-color: #d99b26; }
+.ai-limits-critical .ai-limits-fill { background-color: #e06161; }
+.ai-limits-text-warning { color: #d99b26; }
+.ai-limits-text-critical { color: #e06161; }
+.ai-limits-tooltip { padding: 8px; border-radius: 6px; background-color: rgba(30,30,30,0.95); color: white; }

@@ -66,6 +66,7 @@ UUID=ai-limits-monitor@vlduggen
 TARGET="$HOME/.local/share/gnome-shell/extensions/$UUID"
 mkdir -p "$TARGET"
 cp gnome/metadata.json gnome/extension.js gnome/cache-events.js \
+  gnome/dashboard.js gnome/refresh-request.js gnome/stylesheet.css \
   gnome/claude.svg gnome/codex.svg "$TARGET/"
 cp shared/snapshot.js "$TARGET/snapshot.js"
 cp cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py \
@@ -112,6 +113,11 @@ recarregar a sessão do GNOME.
 
 ## Atualizar
 
+O editor de contas permite escolher coleta híbrida, somente local ou somente
+consultas e definir intervalo remoto por conta. O intervalo legado explícito
+continua valendo até você optar pela migração. A integração Claude é habilitada
+separadamente, após preview e confirmação; Salvar contas não modifica a statusline.
+
 Na raiz do clone atualizado, copie novamente os arquivos para o mesmo diretório:
 
 ```bash
@@ -119,6 +125,7 @@ UUID=ai-limits-monitor@vlduggen
 TARGET="$HOME/.local/share/gnome-shell/extensions/$UUID"
 gnome-extensions disable "$UUID"
 cp gnome/metadata.json gnome/extension.js gnome/cache-events.js \
+  gnome/dashboard.js gnome/refresh-request.js gnome/stylesheet.css \
   gnome/claude.svg gnome/codex.svg "$TARGET/"
 cp shared/snapshot.js "$TARGET/snapshot.js"
 cp cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py \
@@ -131,10 +138,12 @@ Atualize o daemon separadamente com `pnpm install`, `pnpm build` e reinicie
 Não substitua a unidade instalada se ela tiver caminhos próprios para uma
 instalação anterior.
 
-O item **Atualizar agora** no menu GNOME reinicia o serviço do usuário sem
-bloquear o Shell. A extensão observa o cache e redesenha o painel/menu quando um
-snapshot novo chega; o timer de 30 segundos continua como fallback. A ação fica
-desabilitada enquanto aguarda o resultado e informa falhas/timeout. Não é preciso
+O item **Atualizar agora** envia um pedido UUID privado ao coletor sem reiniciar
+o serviço. Só o resultado desse ID confirma o processamento; cooldown é informado
+como bloqueio, não como quota nova. A extensão observa o cache com debounce de
+150 ms; o timer de 30 segundos continua como fallback. Os cartões mantêm foco e
+scroll, com contagem local de 15 segundos sem consultas. A ação fica desabilitada
+enquanto aguarda o resultado e informa falhas/timeout. Não é preciso
 fazer logout para alterar contas ou solicitar uma consulta. Ao instalar código
 JavaScript novo, use o fluxo de atualização acima; se o Shell mantiver o módulo
 antigo carregado, uma recarga da sessão poderá ser necessária uma única vez.
@@ -148,12 +157,19 @@ o menu também mostra idade, fonte e motivo da falha. Sem leitura anterior, a co
 permanece como `--% (erro)`. O horário geral do snapshot não significa que todas
 as contas foram atualizadas com sucesso.
 
-Leituras locais recentes do `statusLine` Claude têm prioridade. O fallback OAuth
-bem-sucedido é limitado ao intervalo configurado (15 minutos por padrão); falhas
-transitórias aguardam 5 minutos e HTTP 429 usa 15/30/60 minutos, com jitter e
-respeito ao prazo informado pelo CLI. O estado persiste entre reinícios. As outras
-contas continuam sendo consultadas normalmente; reiniciar o serviço não contorna
-o limite remoto.
+O CLI pode responder ao SDK com percentuais antigos quando a consulta de uso
+recebe HTTP 429. O daemon detecta esse diagnóstico e não apresenta os números
+guardados como atuais. A conta mantém o último número com `~` e aviso `!`, ou
+`--% (erro)` se não houver quota útil; o menu
+mostra o motivo e o horário da próxima tentativa. O horário geral do snapshot
+não significa que todas as contas foram atualizadas com sucesso.
+
+O daemon respeita o maior prazo entre o CLI e 15/30/60 minutos progressivos, com
+jitter positivo de até 10%, e tenta novamente no próximo ciclo elegível após
+esse prazo. Outras falhas temporárias aguardam 5 minutos. As outras contas
+continuam sendo consultadas normalmente. Reiniciar o serviço não elimina o
+bloqueio que o próprio CLI lembra para a autenticação; não use reinícios
+repetidos para tentar contorná-lo.
 
 ## Remover
 
@@ -180,11 +196,16 @@ manualmente a unidade de usuário somente se não precisar mais dela.
 4. Abra **Configurar…** e confirme que contas, rótulos, modos e ações disponíveis
    correspondem à configuração, sem pressionar **Salvar** ao testar com dados
    reais.
-5. Use **Atualizar agora**. Confirme que `createdAt` do cache avança e que o
-   painel/menu se atualizam sem encerrar a sessão. Verifique também no menu os
+5. Use **Atualizar agora**. Confirme o resultado do mesmo UUID, sem interpretar
+   `createdAt` como idade da quota. Verifique atualização sem reiniciar o serviço
+   e sem encerrar a sessão. Verifique também no menu os
    estados de cache ausente e snapshot antigo em uma conta de teste isolada.
 6. Para verificar erros de CLI ou serviço, use uma configuração/serviço de teste;
    não altere credenciais nem a configuração real apenas para provocar falhas.
 
 Não é necessário habilitar o serviço como root; tanto a extensão como o daemon
 pertencem à sessão do usuário.
+
+Confira também [fontes, integração opt-in e rollback](../docs/local-first-monitoring.md).
+O novo dashboard ainda não foi validado em sessão: testar teclado, foco/scroll,
+tema claro/escuro, escala 100/200% e seis contas sintéticas antes de instalar.

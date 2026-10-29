@@ -2,7 +2,7 @@
 
 **Data:** 2026-10-21
 
-**Status:** aprovada pelo usuário nesta conversa; implementação não iniciada.
+**Status:** aprovada; implementação isolada com testes; revisão final e validação de sessão/implantação acompanhadas no plano.
 
 ## 1. Objetivo e decisões aprovadas
 
@@ -263,5 +263,6 @@ Base factual: [estudo comparativo](../../../reports/Monitoramento%20local%20de%2
 - [x] Confirmar direção: coleta local e visual GNOME primeiro.
 - [x] Registrar proposta e revisar escopo, compatibilidade e riscos.
 - [x] Usuário revisar e aprovar esta especificação.
-- [ ] Criar plano de implementação e selecionar forma de execução.
-- [ ] Implementar com testes e validar antes de instalar.
+- [x] Criar plano de implementação e selecionar forma de execução (nativa).
+- [x] Implementar com testes e revisão independente antes da instalação de teste.
+- [ ] Validar menu em sessão GNOME nova e apresentação Cinnamon em sessão real.

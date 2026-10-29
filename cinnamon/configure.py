@@ -2,6 +2,7 @@
 
 import copy
 from datetime import datetime
+import json
 import os
 import shutil
 import subprocess
@@ -25,6 +26,7 @@ from account_config import (
     save_config,
     update_account_enabled,
     update_account_profile,
+    update_collection_settings,
 )
 from config_paths import resolve_config_path
 from project_updates import ProjectUpdater
@@ -106,6 +108,7 @@ class ConfigurationWindow(Gtk.Window):
         self.path = path
         self.config = config
         self._draft = copy.deepcopy(config)
+        self._collection_controls = {}
         self.home = Path.home() if home is None else Path(home)
         self.executable_lookup = executable_lookup
         self.restart_service = restart_service
@@ -638,6 +641,201 @@ class ConfigurationWindow(Gtk.Window):
         label_entry.connect("changed", self._on_label_changed, account_id, frame)
         combo.connect("changed", self.on_mode_changed, account_id)
         enabled_check.connect("toggled", self._on_enabled_toggled, account_id)
+
+        collection_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        content.pack_start(collection_box, False, False, 0)
+
+        collection_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        collection_box.pack_start(collection_row, False, False, 0)
+        collection_label = Gtk.Label(label="Coleta")
+        collection_label.set_xalign(0)
+        collection_row.pack_start(collection_label, False, False, 0)
+        collection_mode = Gtk.ComboBoxText()
+        for mode, title in (
+            ("hybrid", "Híbrido"),
+            ("local-only", "Somente local"),
+            ("remote-only", "Somente consultas"),
+        ):
+            collection_mode.append(mode, title)
+        collection_mode.set_active_id(account.get("collectionMode", "hybrid"))
+        collection_row.pack_start(collection_mode, False, False, 0)
+
+        interval = Gtk.SpinButton.new_with_range(0, 86400, 1)
+        interval.set_value(account.get("remotePollIntervalSeconds", 0))
+        interval.set_tooltip_text(
+            "Intervalo remoto em segundos. 0 preserva o padrão ou intervalo legado."
+        )
+        collection_row.pack_start(interval, False, False, 0)
+        legacy_interval = self._draft.get("pollIntervalSeconds")
+        interval_hint = (
+            f"Intervalo legado: {legacy_interval}s (preservado)."
+            if legacy_interval
+            else "Padrão remoto: Claude 600s; Codex 120s."
+        )
+        hint = Gtk.Label(label=interval_hint)
+        hint.set_xalign(0)
+        collection_box.pack_start(hint, False, False, 0)
+        if legacy_interval:
+            migrate = Gtk.Button.new_with_label(
+                "Usar intervalo recomendado nesta conta"
+            )
+            migrate.connect(
+                "clicked",
+                lambda _button, control=interval, current_provider=provider:
+                control.set_value(600 if current_provider == "claude" else 120),
+            )
+            collection_box.pack_start(migrate, False, False, 0)
+
+        external_path = None
+        if provider == "claude":
+            warning = Gtk.Label(
+                label="Coleta local depende de campos do CLI; Team pode exigir consulta remota."
+            )
+            warning.set_line_wrap(True)
+            collection_box.pack_start(warning, False, False, 0)
+            external_path = Gtk.Entry()
+            external_path.set_placeholder_text(
+                "Exportação claude-hud (opcional, caminho absoluto)"
+            )
+            external_path.set_text(account.get("externalUsagePath", ""))
+            collection_box.pack_start(external_path, False, False, 0)
+
+            integration_actions = Gtk.Box(
+                orientation=Gtk.Orientation.HORIZONTAL,
+                spacing=6,
+            )
+            for action, title in (
+                ("preview", "Visualizar integração…"),
+                ("install", "Habilitar…"),
+                ("remove", "Remover integração…"),
+            ):
+                button = Gtk.Button.new_with_label(title)
+                button.connect(
+                    "clicked",
+                    lambda _button, kind=action, selected_id=account_id:
+                    self._integration(kind, selected_id),
+                )
+                integration_actions.pack_start(button, False, False, 0)
+            collection_box.pack_start(integration_actions, False, False, 0)
+
+        self._collection_controls[account_id] = {
+            "mode": collection_mode,
+            "interval": interval,
+            "external_path": external_path,
+        }
+        collection_mode.connect(
+            "changed", self._on_collection_settings_changed, account_id
+        )
+        interval.connect(
+            "value-changed", self._on_collection_settings_changed, account_id
+        )
+        if external_path is not None:
+            external_path.connect(
+                "changed", self._on_collection_settings_changed, account_id
+            )
+
+    def _on_collection_settings_changed(self, _widget, account_id):
+        controls = self._collection_controls[account_id]
+        try:
+            self._draft = update_collection_settings(
+                self._draft,
+                account_id,
+                collection_mode=controls["mode"].get_active_id() or "hybrid",
+                remote_poll_interval_seconds=(
+                    controls["interval"].get_value_as_int() or None
+                ),
+                external_usage_path=(
+                    controls["external_path"].get_text().strip()
+                    if controls["external_path"] is not None
+                    else None
+                ),
+            )
+        except ValueError as error:
+            self.status.set_text(str(error))
+            return
+        self.status.set_text("Coleta atualizada no rascunho. Pressione Salvar para aplicar.")
+
+    def _integration(self, action, account_id):
+        if self._draft != self.config:
+            self.status.set_text(
+                "Salve primeiro as alterações de contas antes de gerenciar a integração."
+            )
+            return
+        node = self.executable_lookup("node")
+        entrypoint = self.path.parent.parent / "dist" / "index.js"
+        if not node or not entrypoint.is_file():
+            self.status.set_text(
+                "CLI do monitor indisponível: compile o projeto e disponibilize Node no PATH."
+            )
+            return
+
+        def run(kind, callback, preview_id=None):
+            def worker():
+                try:
+                    command = [
+                        node,
+                        str(entrypoint),
+                        "integration",
+                        kind,
+                        "--account",
+                        account_id,
+                    ]
+                    if kind in ("install", "remove"):
+                        command.append("--confirm")
+                    if kind == "install":
+                        command.extend(["--preview", preview_id])
+                    result = subprocess.run(
+                        command,
+                        env={**os.environ, "AI_LIMITS_CONFIG": str(self.path)},
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                    )
+                    output = result.stdout if result.returncode == 0 else result.stderr
+                except (OSError, subprocess.SubprocessError) as error:
+                    output = str(error)
+                GLib.idle_add(callback, output)
+
+            Thread(target=worker, name="claude-integration", daemon=True).start()
+
+        def confirm(output):
+            preview = None
+            if action == "remove":
+                detail = (
+                    "Remover somente a integração instalada pelo monitor? "
+                    "Alterações posteriores serão preservadas."
+                )
+            else:
+                try:
+                    preview = json.loads(output)
+                    detail = "\n".join(preview.get("warnings", []))
+                    detail += "\n\nStatusline proposta:\n" + preview["proposed"]
+                except (ValueError, KeyError, TypeError):
+                    self.status.set_text(output[:2000])
+                    return False
+
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                modal=True,
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.OK_CANCEL,
+                text="Integração Claude — " + action,
+            )
+            dialog.format_secondary_text(detail)
+            response = dialog.run()
+            dialog.destroy()
+            if response == Gtk.ResponseType.OK and action != "preview":
+                run(
+                    action,
+                    lambda message: self.status.set_text(message[:2000]) or False,
+                    preview["previewId"] if action == "install" else None,
+                )
+            return False
+
+        if action == "remove":
+            confirm("")
+        else:
+            run("preview", confirm)
 
     @staticmethod
     def _format_snapshot_timestamp(value):

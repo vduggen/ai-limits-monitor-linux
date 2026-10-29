@@ -48,7 +48,7 @@ test("a rate-limited account stays visible without presenting cached percentages
   const view = buildSnapshotView(JSON.stringify({ version: 1, createdAt: new Date(NOW).toISOString(),
     accounts: [{ ...account, status: "error", error, windows: [] }] }), NOW);
   assert.deepEqual(buildPanelLabels(view).entries, [
-    { provider: "claude", initials: "CP", text: "CP --% (erro)" },
+    { provider: "claude", initials: "CP", text: "CP --% (erro)", tooltip: `Claude pessoal · Sessão · Semanal · ${error}` },
   ]);
   assert.equal(buildMenuView(view, NOW).groups[0].accounts[0].error, error);
   assert.match(buildMenuView(view, NOW).statusText, /sem dados atuais/);
@@ -78,6 +78,45 @@ test("the provider discards stale SDK values and does not launch another probe d
   assert.match(first.error, /429/);
   assert.equal(next.checkedAt, first.checkedAt);
   assert.equal(launches, 1);
+});
+
+test("the daemon-facing Claude probe exposes the provider retry deadline", async (t) => {
+  t.mock.method(Date, "now", () => NOW);
+  const result = await provider.probeClaudeUsage(
+    { ...account, id: "daemon-rate-limited" },
+    2,
+    ({ options }) => ({
+      return: async () => ({ done: true }),
+      initializationResult: async () => initialization,
+      usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: async () => {
+        options.stderr("fetchUtilization: 429 remembered; not asking again for 756s\n");
+        return { rate_limits_available: true, rate_limits: null };
+      },
+    }),
+  );
+
+  assert.equal(result.failure, "rate-limited");
+  assert.equal(result.retryAt, new Date(NOW + 756_000).toISOString());
+  assert.equal(result.usage.status, "error");
+});
+
+test("the daemon-facing Claude probe timestamps successful fetched usage", async () => {
+  const result = await provider.probeClaudeUsage(
+    { ...account, id: "daemon-success" },
+    2,
+    () => ({
+      return: async () => ({ done: true }),
+      initializationResult: async () => initialization,
+      usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: async () => ({
+        rate_limits_available: true,
+        rate_limits: { five_hour: { utilization: 37 } },
+      }),
+    }),
+  );
+
+  assert.equal(result.failure, undefined);
+  assert.equal(result.usage.status, "ok");
+  assert.equal(result.fetchedAt, result.usage.checkedAt);
 });
 
 test("a successful SDK response still produces current usage windows", async () => {

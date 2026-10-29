@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
-import type { AccountConfig, AccountUsage } from "../shared/types.js";
+import type { AccountConfig, AccountUsage, RemoteProbeResult } from "../shared/types.js";
 import { displayModeForAccount, makeWindow } from "../shared/usage.js";
 import { claudeProfileKey } from "./claude-profile.js";
 
@@ -262,6 +262,9 @@ export function parseClaudeUsage(
       displayMode: displayModeForAccount(account),
       plan: subscriptionLabel(initialization.account?.subscriptionType),
       email: initialization.account?.email,
+      identityId: initialization.account?.email
+        ? `email:${initialization.account.email.toLowerCase()}`
+        : undefined,
       windows: [],
       checkedAt,
       error: response.rate_limits_available === false
@@ -317,6 +320,9 @@ export function parseClaudeUsage(
     displayMode: displayModeForAccount(account),
     plan: subscriptionLabel(initialization.account?.subscriptionType),
     email: initialization.account?.email,
+    identityId: initialization.account?.email
+      ? `email:${initialization.account.email.toLowerCase()}`
+      : undefined,
     windows,
     checkedAt,
   };
@@ -414,4 +420,23 @@ export async function readClaudeUsage(
       error: backoff.error() ?? (error instanceof Error ? error.message : String(error)),
     });
   }
+}
+
+export async function probeClaudeUsage(
+  account: AccountConfig,
+  timeoutSeconds: number,
+  queryFactory: typeof query = query,
+): Promise<RemoteProbeResult> {
+  const usage = await readClaudeUsage(account, timeoutSeconds, queryFactory);
+  const retryAt = claudeUsageRetryAt(account);
+  const rateLimited = usage.status === "error" && /\b429\b|Claude limitou/i.test(usage.error ?? "");
+
+  return {
+    usage,
+    failure: usage.status === "unsupported"
+      ? "unsupported"
+      : usage.status === "error" ? (rateLimited ? "rate-limited" : "transient") : undefined,
+    retryAt: retryAt ? new Date(retryAt).toISOString() : undefined,
+    fetchedAt: usage.status === "ok" ? usage.checkedAt : undefined,
+  };
 }

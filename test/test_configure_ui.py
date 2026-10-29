@@ -5,6 +5,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import time
+from types import SimpleNamespace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -12,7 +14,7 @@ from unittest.mock import patch
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk
+from gi.repository import Gtk, GLib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cinnamon"))
 import configure
@@ -66,6 +68,60 @@ class FakeProjectUpdater:
 
 
 class ConfigurationWindowTests(unittest.TestCase):
+    def test_collectionControlsUpdateOnlyCollectionSettingsInDraft(self):
+        profile = self.home / ".claude"
+        profile.mkdir()
+        config = {"accounts": [{
+            **self.account_config("claude", "claude-default", "Claude pessoal", profile),
+            "customField": "preserved",
+        }]}
+        window = self.make_window(config, lambda _name: "/usr/bin/provider-cli")
+        widgets = list(descendants(window))
+        collection_mode = next(
+            widget for widget in widgets
+            if isinstance(widget, Gtk.ComboBoxText) and widget.get_active_id() == "hybrid"
+        )
+        interval = next(widget for widget in widgets if isinstance(widget, Gtk.SpinButton))
+        external_path = next(
+            widget for widget in widgets
+            if isinstance(widget, Gtk.Entry)
+            and widget.get_placeholder_text() == "Exportação claude-hud (opcional, caminho absoluto)"
+        )
+
+        collection_mode.set_active_id("local-only")
+        interval.set_value(600)
+        external_path.set_text(str(self.root / "usage.json"))
+
+        account = window._draft["accounts"][0]
+        self.assertEqual(account["collectionMode"], "local-only")
+        self.assertEqual(account["remotePollIntervalSeconds"], 600)
+        self.assertEqual(account["externalUsagePath"], str(self.root / "usage.json"))
+        self.assertEqual(account["customField"], "preserved")
+
+    def test_installCarriesTheExactPreviewApprovedInTheDialog(self):
+        config = {"accounts": [self.account_config("claude", "a", "Claude", self.home / ".claude")]}
+        self.write_config(config)
+        dist = self.root / "dist"
+        dist.mkdir()
+        (dist / "index.js").write_text("", encoding="utf-8")
+        window = self.make_window(config, executable_lookup=lambda name: "/usr/bin/node")
+        calls = []
+        def run(command, **kwargs):
+            calls.append(command)
+            if "preview" in command:
+                return SimpleNamespace(returncode=0, stdout=json.dumps({"previewId": "approved-token", "proposed": "approved-settings", "warnings": []}), stderr="")
+            return SimpleNamespace(returncode=0, stdout="installed", stderr="")
+        with patch.object(configure.subprocess, "run", side_effect=run), patch.object(Gtk.MessageDialog, "run", return_value=Gtk.ResponseType.OK):
+            window._integration("install", "a")
+            deadline = time.monotonic() + 2
+            while len(calls) < 2 and time.monotonic() < deadline:
+                GLib.MainContext.default().iteration(False)
+                time.sleep(0.01)
+        self.assertEqual(len(calls), 2)
+        install = calls[1]
+        self.assertIn("--preview", install)
+        self.assertEqual(install[install.index("--preview") + 1], "approved-token")
+
     def setUp(self):
         Gtk.init_check([])
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -526,6 +582,7 @@ class ConfigurationWindowTests(unittest.TestCase):
         self.assertIn("Outra conta Claude…", buttons)
         self.assertIn("Outra conta Codex…", buttons)
         self.assertIn("Salvar", buttons)
+        self.assertIn("hybrid", display_modes)
 
     def test_addAndRemoveAccountChangesDraftUntilSave(self):
         codex_profile = self.home / ".codex"
@@ -555,7 +612,7 @@ class ConfigurationWindowTests(unittest.TestCase):
             for widget in descendants(window)
             if isinstance(widget, Gtk.Entry)
         ]
-        self.assertEqual(len(remaining_entries), 1)
+        self.assertEqual(sum(value in ("Codex pessoal", "Claude pessoal") for value in remaining_entries), 1)
         self.assertEqual(self.restart_calls, [])
         self.assertFalse(self.button_by_label(window, "Remover").get_sensitive())
 

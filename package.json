@@ -7,14 +7,15 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
-    "check:gnome": "node --check gnome/cache-events.js && node --check shared/snapshot.js && node --check gnome/extension.js && node --input-type=module -e 'import { readFile } from \"node:fs/promises\"; JSON.parse(await readFile(\"gnome/metadata.json\", \"utf8\"));'",
+    "check:gnome": "node --check gnome/cache-events.js && node --check shared/snapshot.js && node --check gnome/dashboard.js && node --check gnome/refresh-request.js && node --check gnome/extension.js && node --input-type=module -e 'import { readFile } from \"node:fs/promises\"; JSON.parse(await readFile(\"gnome/metadata.json\", \"utf8\"));'",
     "check:cinnamon": "node --check cinnamon/applet.js && node --check shared/snapshot.js && node --input-type=module -e 'import { readFile } from \"node:fs/promises\"; JSON.parse(await readFile(\"cinnamon/metadata.json\", \"utf8\")); JSON.parse(await readFile(\"cinnamon/settings-schema.json\", \"utf8\"));'",
     "test": "node --test",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "check:usage": "tsx src/index.ts check",
     "check:json": "tsx src/index.ts check --json",
-    "watch": "tsx src/index.ts watch"
+    "watch": "tsx src/index.ts watch",
+    "refresh": "tsx src/index.ts refresh"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.276"

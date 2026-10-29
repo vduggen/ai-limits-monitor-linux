@@ -1,5 +1,4 @@
 {
-  "pollIntervalSeconds": 60,
   "probeTimeoutSeconds": 25,
   "claudeStatusLineMaxAgeSeconds": 180,
   "claudeOAuthMinIntervalSeconds": 900,
@@ -9,6 +8,7 @@
       "label": "Claude pessoal",
       "provider": "claude",
       "displayMode": "remaining",
+      "collectionMode": "hybrid",
       "configDir": "~/.claude",
       "statusLinePath": "~/.cache/ai-limits-widget/status/claude-default.json"
     },
@@ -17,6 +17,7 @@
       "label": "Codex pessoal",
       "provider": "codex",
       "displayMode": "remaining",
+      "collectionMode": "hybrid",
       "homeDir": "~/.codex"
     }
   ]
