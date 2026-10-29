@@ -224,6 +224,9 @@ def sync_installed_frontend(project_root: Path, editor_path: Path) -> bool:
             "metadata.json",
             "extension.js",
             "cache-events.js",
+            "dashboard.js",
+            "refresh-request.js",
+            "stylesheet.css",
             "claude.svg",
             "codex.svg",
         )
