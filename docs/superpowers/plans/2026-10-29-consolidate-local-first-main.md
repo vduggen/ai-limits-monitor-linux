@@ -70,7 +70,7 @@
 - [ ] **Step 3: Verificar os casos de regressão Claude.** Executar `node --test test/claude-provider-environment.test.js test/claude-usage-recovery.test.js`. Esperado: todos os testes desses arquivos passam, incluindo ambiente/configuração Claude e recuperação limitada de uso.
 - [ ] **Step 4: Verificar os arquivos resolvidos.** Executar `git diff --check` antes de concluir o merge.
 - [ ] **Step 5: Concluir o merge commit.** Finalizar o merge sem alterar os stashes.
-- [ ] **Step 6: Confirmar preservação.** Verificar que `git merge-base --is-ancestor c663df3d299647762da325969c1f406b47fc6700 main` retorna sucesso.
+- [ ] **Step 6: Confirmar preservação na integração.** Verificar que `git merge-base --is-ancestor c663df3d299647762da325969c1f406b47fc6700 integration/consolidate-local-first-main` retorna sucesso.
 
 ## Task 3: Integrar a coleta local-first e reconciliar o runtime
 
