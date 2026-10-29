@@ -54,6 +54,7 @@ export async function loadRuntimeState(root: string): Promise<readonly AccountCo
     || typeof s.binding.profilePath !== "string" || typeof s.binding.generation !== "string" || !validTimestamp(s.binding.boundAt)
     || !Array.isArray(s.windows) || !s.windows.every(validWindow) || !Number.isSafeInteger(s.revision)
     || !Number.isSafeInteger(s.rateLimitLevel) || s.rateLimitLevel < 0 || s.rateLimitLevel > 3
+    || (s.localDiagnostic !== undefined && (typeof s.localDiagnostic !== "string" || s.localDiagnostic.length > 512))
     || (s.nextRetryAt !== undefined && !Number.isFinite(Date.parse(s.nextRetryAt))))) throw new Error("Estado runtime inválido.");
   return value as AccountCollectionState[];
 }

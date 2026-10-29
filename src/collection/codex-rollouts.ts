@@ -56,7 +56,8 @@ export class CodexRolloutReader {
       for (const line of lines) {
         if (this.dropping) { this.dropping = false; continue; }
         if (Buffer.byteLength(line) > 1_048_576) continue;
-        if (this.binding.identityId && !this.binding.identityId.startsWith('email:') && this.creator && this.binding.identityId !== this.creator) continue;
+        if (this.binding.identityId && (this.binding.identityId.startsWith("email:")
+          || !this.creator || this.binding.identityId !== this.creator)) continue;
         try {
           const observation = parseCodexQuotaEvent(JSON.parse(line), this.binding, new Date().toISOString());
           if (observation) result.push({ ...observation, sessionId: this.sessionId });

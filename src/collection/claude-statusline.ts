@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { writePrivateJson } from "./private-files.js";
+import { readPrivateJson, writePrivateJson } from "./private-files.js";
 import { validTimestamp } from "./observations.js";
 import type { ProfileBinding, QuotaObservation, UsageWindow } from "../shared/types.js";
 
@@ -15,9 +15,11 @@ export function parseClaudeStatusline(input: unknown, binding: ProfileBinding, o
     const w = limits[id] as { used_percentage?: number; resets_at?: number } | null;
     if (!w || typeof w.used_percentage !== "number" || !Number.isFinite(w.used_percentage) || w.used_percentage < 0 || w.used_percentage > 100) continue;
     const resetMs = typeof w.resets_at === "number" ? w.resets_at * 1000 : NaN;
-    if (!Number.isFinite(resetMs) || Math.abs(resetMs) > 8.64e15) continue;
+    const resetsAt = Number.isFinite(resetMs) && Math.abs(resetMs) <= 8.64e15
+      ? new Date(resetMs).toISOString()
+      : undefined;
     windows.push({ id, kind, label, usedPercent: w.used_percentage, remainingPercent: 100 - w.used_percentage,
-      resetsAt: new Date(resetMs).toISOString(), windowDurationMins: duration });
+      ...(resetsAt ? { resetsAt } : {}), windowDurationMins: duration });
   }
   if (!windows.length) return null;
   return { binding, source: "claude-statusline", observedAt, sourceEventAt: observedAt,
@@ -40,7 +42,20 @@ export async function runStatuslineBridge(options: { binding: ProfileBinding; ro
       if (value) {
         const session = value.sessionId ?? `parent:${process.ppid}`;
         const hash = createHash("sha256").update(session).digest("hex");
-        await writePrivateJson(path.join(options.root, "inputs", options.binding.generation, `${hash}.json`), value);
+        const file = path.join(options.root, "inputs", options.binding.generation, `${hash}.json`);
+        const previous = await readPrivateJson(file, options.root, 1_048_576).catch(() => undefined) as QuotaObservation | undefined;
+        const sameSample = previous?.source === value.source
+          && previous.binding.generation === value.binding.generation
+          && previous.binding.accountId === value.binding.accountId
+          && previous.binding.profilePath === value.binding.profilePath
+          && previous.sessionId === value.sessionId
+          && JSON.stringify(previous.windows) === JSON.stringify(value.windows)
+          && validTimestamp(previous.observedAt)
+          && validTimestamp(previous.sourceEventAt);
+        const observation = sameSample
+          ? { ...value, observedAt: previous.observedAt, sourceEventAt: previous.sourceEventAt }
+          : value;
+        await writePrivateJson(file, observation);
       }
     }
   } catch { /* Do not log the incoming payload or filesystem details. */ }

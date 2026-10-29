@@ -27,3 +27,21 @@ test('incremental reader handles partial UTF8, replay, truncate and identity mis
   await writeFile(file, JSON.stringify({ type: 'session_meta', payload: { creator_account_id: 'other' } }) + '\n' + line);
   assert.deepEqual(await new CodexRolloutReader(file, b).read(), []);
 });
+
+test('Codex rollouts require comparable creator evidence for a confirmed profile identity', async t => {
+  const root = await mkdtemp('/tmp/opencode/rollout-identity-');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const cases = [
+    { name: 'missing creator', identityId: 'expected', creator: undefined, accepted: false },
+    { name: 'email identity', identityId: 'email:person@example.test', creator: 'person@example.test', accepted: false },
+    { name: 'unconfirmed profile', identityId: undefined, creator: undefined, accepted: true },
+  ];
+
+  for (const [index, item] of cases.entries()) {
+    const file = `${root}/session-${index}.jsonl`;
+    const metadata = { type: 'session_meta', payload: { id: `s${index}`, ...(item.creator ? { creator_account_id: item.creator } : {}) } };
+    await writeFile(file, `${JSON.stringify(metadata)}\n${JSON.stringify(event())}\n`, { mode: 0o600 });
+    const observations = await new CodexRolloutReader(file, { ...binding, profilePath: root, identityId: item.identityId }).read();
+    assert.equal(observations.length > 0, item.accepted, item.name);
+  }
+});

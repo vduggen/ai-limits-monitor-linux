@@ -280,9 +280,10 @@ def update_account_profile(
     previous_profile = _normalized_path(_account_profile_path(account))
     account[path_key] = normalized_profile
     if provider == "claude" and previous_profile != normalized_profile:
-        # A status-line output path belongs to the original Claude profile.
-        # Do not silently attribute its cached usage to a replacement profile.
+        # Local usage exports belong to the original Claude profile.
+        # Do not silently attribute their cached usage to a replacement profile.
         account.pop("statusLinePath", None)
+        account.pop("externalUsagePath", None)
     _validate_config(updated)
     return updated
 

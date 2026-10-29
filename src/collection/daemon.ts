@@ -18,7 +18,7 @@ export function toSnapshot(states: readonly AccountCollectionState[], config: Ap
       return { id: a.id, label: a.label, provider: a.provider, displayMode: a.displayMode ?? "remaining", status,
         windows: s.windows, email: confidence === "confirmed" ? s.email : undefined, plan: s.plan,
         checkedAt: s.lastAttemptAt ?? s.windows[0]?.observedAt ?? s.binding.boundAt,
-        error: s.error ?? (!s.windows.length ? "Aguardando dados do perfil ou consulta elegível." : undefined),
+        error: s.error ?? s.localDiagnostic ?? (!s.windows.length ? "Aguardando dados do perfil ou consulta elegível." : undefined),
         collection: { lastAttemptAt: s.lastAttemptAt, lastSuccessAt: s.lastSuccessAt, nextRetryAt: s.nextRetryAt, failure: s.failure, revision: s.revision, identityConfidence: confidence } };
     }) };
 }
@@ -30,16 +30,25 @@ export async function runDaemon(configFile: string, cacheFile: string, signal: A
   let requests: Awaited<ReturnType<typeof watchRefreshRequests>> | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   let ticking: Promise<void> | undefined;
+  let publishing = Promise.resolve();
   let coordinator: ReturnType<typeof createCoordinator> | undefined;
   try {
     let config = await loadConfig(configFile); let configText = await readFile(configFile, "utf8");
     let initial: readonly AccountCollectionState[] = []; let corrupt = false;
     try { initial = await loadRuntimeState(root); } catch { corrupt = true; }
     let result: RefreshResult | undefined;
-    const publish = async (states: readonly AccountCollectionState[]) => {
-      await saveRuntimeState(root, states); await writeSnapshot(cacheFile, toSnapshot(states, config, configFile, result));
+    const publish = (states: readonly AccountCollectionState[]) => {
+      const work = publishing.then(async () => {
+        await saveRuntimeState(root, states);
+        await writeSnapshot(cacheFile, toSnapshot(states, config, configFile, result));
+      });
+      publishing = work.catch(() => {});
+      return work;
     };
-    const onError = () => console.error('Falha ao publicar estado do coletor; próxima gravação será tentada normalmente.');
+    const onError = (error: unknown) => {
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : undefined;
+      console.error(`Falha ao publicar estado do coletor${code ? ` (${code})` : ""}; próxima gravação será tentada normalmente.`);
+    };
     coordinator = createCoordinator({ accounts: config.accounts, config, initial, probe: probeRemote, now: Date.now, random: Math.random, publish, onError });
     if (corrupt) {
       const guarded = coordinator.states().map(s => ({ ...s, nextRetryAt: new Date(Date.now() + 900000).toISOString(), error: "Estado anterior inválido; aguardando 15 minutos antes de consultar." }));
@@ -50,7 +59,7 @@ export async function runDaemon(configFile: string, cacheFile: string, signal: A
       coordinator!.states().map(s => s.binding),
       root,
       observation => coordinator!.observe(observation),
-      () => {},
+      (accountId, message) => coordinator!.diagnose(accountId, message),
       {
         desktopMaxAgeSeconds: config.claudeDesktopMaxAgeSeconds,
         statusLineMaxAgeSeconds: config.claudeStatusLineMaxAgeSeconds,
@@ -64,7 +73,10 @@ export async function runDaemon(configFile: string, cacheFile: string, signal: A
       return;
     }
     requests = await watchRefreshRequests(root, async request => {
-      await sources!.rescan(); result = await coordinator!.refresh(request); await publish(coordinator!.states()); return result;
+      const observedAccountIds = await sources!.rescan();
+      result = await coordinator!.refresh(request, observedAccountIds);
+      await publish(coordinator!.states());
+      return result;
     });
     const tick = async () => {
       if (sourceKey !== bindingKey()) {
@@ -85,7 +97,7 @@ export async function runDaemon(configFile: string, cacheFile: string, signal: A
   } finally {
     if (timer) clearInterval(timer);
     try {
-      await requests?.close(); await ticking; await sources?.close(); await coordinator?.close();
+      await requests?.close(); await ticking; await sources?.close(); await coordinator?.close(); await publishing;
     } finally { await lock.release(); }
   }
 }

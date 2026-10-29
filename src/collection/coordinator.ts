@@ -32,16 +32,29 @@ export function createCoordinator(options: {
     }
   }
   reconfigure(accounts, config);
-  function observe(o: QuotaObservation) {
-    if (closed) return;
+  function observe(o: QuotaObservation): boolean {
+    if (closed) return false;
     const a = accounts.find(a => a.id === o.binding.accountId);
-    if (!a || a.enabled === false || resolveCollectionPolicy(a, config).mode === "remote-only") return;
+    if (!a || a.enabled === false || resolveCollectionPolicy(a, config).mode === "remote-only") return false;
     const state = values.get(a.id)!; const merged = mergeObservation(state, o);
-    if (merged !== state) { values.set(a.id, merged); void publish().catch(() => {}); }
+    if (merged === state) return false;
+    values.set(a.id, merged); void publish().catch(() => {});
+    return true;
   }
-  async function collect(a: AccountConfig, manual: boolean): Promise<RefreshResult["accounts"][number]> {
+  function diagnose(accountId: string, message?: string) {
+    const state = values.get(accountId);
+    if (!state) return;
+    const localDiagnostic = message?.slice(0, 512) || undefined;
+    if (state.localDiagnostic === localDiagnostic) return;
+    values.set(accountId, { ...state, localDiagnostic });
+    void publish().catch(() => {});
+  }
+  async function collect(a: AccountConfig, manual: boolean, observedLocally = false): Promise<RefreshResult["accounts"][number]> {
     const state = values.get(a.id)!; const now = options.now();
     const policy = resolveCollectionPolicy(a, config);
+    if (manual && policy.mode === "local-only") {
+      return { accountId: a.id, outcome: observedLocally ? "observed" : "unchanged" };
+    }
     if (state.nextRetryAt && Date.parse(state.nextRetryAt) > now) return { accountId: a.id, outcome: "blocked", nextRetryAt: state.nextRetryAt };
     if (policy.mode === "local-only" || (!manual && (state.lastLocalEventAt && now - Date.parse(state.lastLocalEventAt) < 120000)
       && policy.mode !== "remote-only")) return { accountId: a.id, outcome: "unchanged" };
@@ -84,12 +97,13 @@ export function createCoordinator(options: {
     try { return await work; } finally { if (running.get(a.id) === work) running.delete(a.id); }
   }
   return {
-    observe, reconfigure, states: () => [...values.values()],
+    observe, diagnose, reconfigure, states: () => [...values.values()],
     async tick() { if (!closed) await Promise.all(accounts.filter(a => a.enabled !== false).map(a => collect(a, false))); },
-    async refresh(request: RefreshRequest): Promise<RefreshResult> {
+    async refresh(request: RefreshRequest, observedAccountIds: readonly string[] = []): Promise<RefreshResult> {
       const selected = request.accountIds ?? accounts.filter(a => a.enabled !== false).map(a => a.id);
       if (selected.some(id => !values.has(id) || !accounts.some(a => a.id === id && a.enabled !== false))) throw new Error("Conta desconhecida ou desabilitada.");
-      return { id: request.id, completedAt: new Date(options.now()).toISOString(), accounts: await Promise.all(selected.map(id => collect(accounts.find(a => a.id === id)!, true))) };
+      const observed = new Set(observedAccountIds);
+      return { id: request.id, completedAt: new Date(options.now()).toISOString(), accounts: await Promise.all(selected.map(id => collect(accounts.find(a => a.id === id)!, true, observed.has(id)))) };
     },
     async close() { closed = true; await Promise.allSettled([...running.values()]); await publishing; },
   };

@@ -8,11 +8,8 @@ async function main(): Promise<void> {
   if (!file || !path.isAbsolute(file)) throw new Error("Manifesto inválido.");
   const root = path.dirname(path.dirname(file));
   const manifest = await readPrivateJson(file, root, 1_048_576) as { binding: ProfileBinding; root: string; previousCommand?: string };
-  let size = 0;
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) {
-    size += chunk.length;
-    if (size > 1_048_576) throw new Error("Entrada de statusline excedeu limite.");
     chunks.push(Buffer.from(chunk));
   }
   process.exitCode = await runStatuslineBridge(manifest, Buffer.concat(chunks));

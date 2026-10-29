@@ -40,6 +40,30 @@ test('local-only never probes and another identity discards a late response', as
   await c.tick(); await c.refresh(request); assert.equal(calls, 0); await c.close();
 });
 
+test('local-only manual refresh reports a newly accepted local observation', async () => {
+  const c = createCoordinator({
+    accounts: [{ ...account, collectionMode: 'local-only' }],
+    config: { probeTimeoutSeconds: 2 },
+    initial: [],
+    now: () => start,
+    random: () => 0,
+    publish: async () => {},
+    probe: async () => { throw Error('local-only must not probe'); },
+  });
+  const accepted = c.observe({
+    binding: c.states()[0].binding,
+    source: 'claude-statusline',
+    observedAt: new Date(start).toISOString(),
+    identityConfidence: 'profile',
+    windows: [quota(37)],
+  });
+
+  assert.equal(accepted, true);
+  assert.equal((await c.refresh(request, ['a'])).accounts[0].outcome, 'observed');
+  assert.equal((await c.refresh(request)).accounts[0].outcome, 'unchanged');
+  await c.close();
+});
+
 test('same-profile login change discards old weekly quota before associating the new identity', async () => {
   let now = start; let identity = 'A';
   const c = createCoordinator({accounts:[account], config:{probeTimeoutSeconds:5}, initial:[], now:()=>now, random:()=>0, publish:async()=>{}, probe:async()=>({usage:{...account,status:'ok',checkedAt:new Date(now).toISOString(),email:`${identity}@test`,identityId:identity,windows:identity==='A'?[quota(37),{...quota(86),id:'seven_day',kind:'weekly'}]:[quota(40)]}})});

@@ -113,6 +113,7 @@ export interface AccountCollectionState {
   lastLocalEventAt?: string;
   lastAttemptAt?: string;
   lastSuccessAt?: string;
+  localDiagnostic?: string;
   nextRetryAt?: string;
   rateLimitLevel: number;
   error?: string;
