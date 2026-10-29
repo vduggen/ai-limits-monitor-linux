@@ -1,7 +1,7 @@
 # Consolidação do dashboard local-first em `main`
 
 **Data:** 2026-10-29
-**Status:** Desenho aprovado em conversa; revisão do documento pendente.
+**Status:** Desenho aprovado pelo usuário em conversa; texto revisado em 2026-10-29. A integração está em validação final na branch isolada antes do fast-forward de `main`.
 
 ## Objetivo
 
@@ -9,33 +9,38 @@ Integrar em `main` o trabalho exclusivo das branches e worktrees locais, incluin
 o coletor local-first e o novo dashboard GNOME, preservar o histórico dos commits
 e remover branches/worktrees auxiliares somente depois da integração e validação.
 
-## Estado observado
+## Estado observado no início da integração
 
-- `main` e `origin/main` estão limpos e alinhados em `64a26c2`.
-- `feat/independent-frontend-sync` aponta para o mesmo commit de `main`.
-- `feat/ubuntu-gnome-support` aponta para `e69d316`, ancestral de `main`; não tem
+- `main` estava em `35d03c6`, um commit local à frente de `origin/main` em
+  `64a26c2`; a cópia do plano desta integração permanecia não rastreada no
+  checkout principal e deveria ser comparada antes da remoção.
+- `feat/independent-frontend-sync` apontava para `64a26c2`.
+- `feat/ubuntu-gnome-support` apontava para `e69d316`, ancestral de `main`; não tinha
   commits exclusivos.
-- A worktree `local-first-gnome-dashboard` está limpa, detached em `9756aca` e
-  diverge de `main`: 15 commits exclusivos nela e 18 exclusivos em `main`.
-- A worktree `.worktrees/ubuntu-gnome-support` está limpa na branch
+- A worktree `local-first-gnome-dashboard` estava limpa, detached em `9756aca` e
+  divergia de `main`: 15 commits exclusivos nela e 18 exclusivos em `main`.
+- A worktree `.worktrees/ubuntu-gnome-support` estava limpa na branch
   `chore/rename-project`, em `c663df3`: um commit exclusivo e 24 commits atrás;
   seu upstream remoto foi removido.
-- Existem cinco stashes. Por decisão explícita, permanecem intactos e fora desta
-  integração.
-- A previsão de merge indicou conflitos em arquivos de documentação,
+- Havia cinco stashes. Por decisão explícita, deveriam permanecer intactos e fora
+  desta integração.
+- A previsão de merge indicava conflitos em arquivos de documentação,
   configurador/contas Cinnamon, extensão GNOME, metadados, pacote, provedores,
   coletor e testes. Também há conflito modify/delete em `gnome/snapshot.js`.
 
 ## Estratégia aprovada
 
-Preservar os commits originais por merges, sem reset, squash ou force-push:
+Preservar os commits originais por merges na branch isolada de integração e só
+avançar `main` por fast-forward depois dos gates finais; sem reset, squash ou
+force-push:
 
-1. Integrar em `main` os commits de `chore/rename-project` que ainda não estejam
-   contidos em `main`.
-2. Integrar a linha completa de `local-first-gnome-dashboard` sobre o `main`
-   atual, resolvendo conflitos de forma deliberada e mantendo os dois históricos
+1. Integrar na branch de consolidação os commits de `chore/rename-project` que
+   ainda não estejam contidos em `main`.
+2. Integrar nessa branch a linha completa de `local-first-gnome-dashboard`,
+   resolvendo conflitos de forma deliberada e mantendo os dois históricos
    alcançáveis.
-3. Não criar merges vazios para branches que já sejam iguais a `main` ou ancestrais
+3. Após a validação, avançar o `main` existente com `merge --ff-only`.
+4. Não criar merges vazios para branches que já sejam iguais a `main` ou ancestrais
    dele; essas referências serão removidas apenas no passo de limpeza.
 
 Alternativas consideradas: reaplicar todos os commits por rebase/cherry-pick,
@@ -57,9 +62,10 @@ histórico solicitado.
   recursos runtime que a extensão resultante realmente referenciar, como
   `dashboard.js`, `refresh-request.js`, CSS e, quando usados, preferências e
   schemas. A cópia deve continuar atômica e limitada ao frontend identificado.
-- Registrar a decisão arquitetural local-first em um novo ADR em português,
-  vinculando a especificação de design existente e distinguindo decisões de
-  hipóteses históricas.
+- Registrar a decisão arquitetural local-first em
+  [`ADR-002`](../../adr/002-coleta-local-prioritaria-e-dashboard-gnome.md), em
+  português, vinculando a especificação de design existente e distinguindo
+  decisões de hipóteses históricas.
 
 ## Verificação
 

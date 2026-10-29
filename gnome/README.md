@@ -59,7 +59,10 @@ editor para localizar essa configuração.
 
 Copie a extensão e o editor compartilhado para o diretório de extensões do
 usuário. `configure.py`, `config_paths.py`, `account_config.py` e
-`project_updates.py` precisam ficar lado a lado:
+`project_updates.py` precisam ficar lado a lado. O contrato compartilhado
+`shared/snapshot.js` é instalado como `snapshot.js`; dashboard, pedido de refresh
+e stylesheet são recursos runtime da extensão e também fazem parte da
+sincronização do frontend instalado:
 
 ```bash
 UUID=ai-limits-monitor@vlduggen
@@ -152,17 +155,10 @@ antigo carregado, uma recarga da sessão poderá ser necessária uma única vez.
 
 O Claude Code pode responder ao SDK com percentuais antigos quando a consulta de
 uso recebe HTTP 429. O daemon descarta essa resposta como nova leitura. Se houver
-uma leitura válida anterior, o painel conserva o percentual marcado como antigo;
-o menu também mostra idade, fonte e motivo da falha. Sem leitura anterior, a conta
-permanece como `--% (erro)`. O horário geral do snapshot não significa que todas
-as contas foram atualizadas com sucesso.
-
-O CLI pode responder ao SDK com percentuais antigos quando a consulta de uso
-recebe HTTP 429. O daemon detecta esse diagnóstico e não apresenta os números
-guardados como atuais. A conta mantém o último número com `~` e aviso `!`, ou
-`--% (erro)` se não houver quota útil; o menu
-mostra o motivo e o horário da próxima tentativa. O horário geral do snapshot
-não significa que todas as contas foram atualizadas com sucesso.
+uma leitura válida anterior, o painel conserva o último número com `~` e aviso
+`!`; o menu mostra idade, fonte, motivo da falha e horário da próxima tentativa.
+Sem leitura anterior, a conta permanece como `--% (erro)`. O horário geral do
+snapshot não significa que todas as contas foram atualizadas com sucesso.
 
 O daemon respeita o maior prazo entre o CLI e 15/30/60 minutos progressivos, com
 jitter positivo de até 10%, e tenta novamente no próximo ciclo elegível após

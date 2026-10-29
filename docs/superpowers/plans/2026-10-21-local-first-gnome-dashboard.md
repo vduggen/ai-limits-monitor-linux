@@ -62,7 +62,7 @@ Testes TS seguem o padrão existente dos testes JS: registrar `tsx/esm/api` e im
 | `src/collection/remote.ts` | Adaptação dos probes existentes para resultado tipado |
 | `src/collection/coordinator.ts`, `src/collection/refresh-requests.ts` | Agenda, estado e pedidos manuais |
 | `src/index.ts`, `src/cache.ts` | Entrada CLI, ciclo do daemon e publicação |
-| `gnome/snapshot.js`, `gnome/dashboard.js`, `gnome/stylesheet.css` | View model, widgets e visual GNOME |
+| `shared/snapshot.js`, `gnome/dashboard.js`, `gnome/stylesheet.css` | View model compartilhada, widgets e visual GNOME |
 | `gnome/extension.js`, `gnome/refresh-request.js` | Ciclo GJS, watchdog e pedido assíncrono |
 | `cinnamon/applet.js`, `cinnamon/account_config.py`, `cinnamon/configure.py` | Compatibilidade e controles GTK3 |
 
@@ -162,9 +162,9 @@ Adicionar a `UsageWindow` os metadados opcionais `source`, `observedAt`, `source
 
 ### Task 7: Contrato visual e compatibilidade Cinnamon
 
-**Files:** modificar `gnome/snapshot.js`, `cinnamon/applet.js`, `test/gnome-snapshot.test.js`; criar `test/cinnamon-applet.behavior.test.js`.
+**Files:** modificar `shared/snapshot.js`, `cinnamon/applet.js`, `test/gnome-snapshot.test.js`; criar `test/cinnamon-applet.behavior.test.js`.
 
-**Interfaces:** manter exports `buildSnapshotView`, `buildPanelLabels`, `buildMenuView`; enriquecer janela da view com `{ id, kind, label, percent, mode, fillRatio, severity, state, sourceText, ageText, resetText, accessibleText }`. Conta da view inclui `id`, `title`, `metadata`, `warning`, `nextRetryAt`, `windows`. Usar chaves de dados estáveis, não texto localizado como ID.
+**Interfaces:** manter no contrato `AiLimitsSnapshot` as operações `buildSnapshotView`, `buildPanelLabels`, `buildMenuView` e `buildWindowView`; enriquecer janela da view com `{ id, kind, label, percent, mode, fillRatio, severity, state, sourceText, ageText, resetText, accessibleText }`. Conta da view inclui `id`, `title`, `metadata`, `warning`, `nextRetryAt`, `windows`. Usar chaves de dados estáveis, não texto localizado como ID. GNOME importa o script compartilhado como `snapshot.js`; Cinnamon continua usando seu adaptador atual.
 
 - [ ] **1. RED:** versão1 antiga continua renderizando, fonte é desconhecida. Publicação nova com janela antiga não muda idade. Dados 37% usados e 63% restantes geram fillRatio 0,37/0,63 e mesma severidade normal. Limiares 75/90, 100 sem mensagem de bloqueio comprovado. Sem janelas: conta permanece `--%` salvo unsupported confirmado.
 - [ ] **2. RED:** última observação útil + 429 produz números com `~`/`!` e texto de próxima tentativa, não esconde conta. Expirado não exibe barra como atual nem inventa zero. Identidade `profile` não mostra email herdado como confirmado; tooltip tem nomes e “Sessão · Semanal”. Snapshot inválido/futuro não quebra nenhum consumidor.

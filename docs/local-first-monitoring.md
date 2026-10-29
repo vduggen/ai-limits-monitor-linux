@@ -4,6 +4,11 @@ O daemon combina observações locais dos CLIs com consultas de fallback. O dado
 de sessão (normalmente 5 horas) e o semanal têm idades independentes. Publicar
 um snapshot não confirma que o provedor mediu o uso novamente.
 
+GNOME e Cinnamon leem o mesmo snapshot versão 1 e compartilham o modelo visual de
+`shared/snapshot.js`. A extensão GNOME instala esse arquivo como `snapshot.js` e
+usa `dashboard.js`, `refresh-request.js` e `stylesheet.css`; os guias de instalação
+e sincronização indicam o pacote runtime completo.
+
 ## Fontes e configuração
 
 Claude Pro/Max pode fornecer `rate_limits.five_hour` e `seven_day` na statusline.

@@ -138,10 +138,10 @@
 - Consumes: implementação final integrada e especificação aprovada de 2026-10-21.
 - Produces: ADR português com contexto, decisão, alternativas, consequências e links; documentação descreve o caminho real do snapshot compartilhado e arquivos incluídos na sincronização.
 
-- [ ] **Step 1: Atualizar instruções contraditórias.** Remover referências à origem `gnome/snapshot.js` quando a origem de build/cópia for `shared/snapshot.js`; documentar os artefatos do dashboard sincronizados.
-- [ ] **Step 2: Criar ADR-002 em português.** Registrar a coleta local prioritária e o dashboard GNOME como decisão aceita; referenciar ADR-001 como decisão complementar, não substituída.
-- [ ] **Step 3: Revisar links e conteúdo.** Verificar caminhos existentes, UUID/serviço/cache preservados e ausência de credenciais/dados pessoais. Atualizar o estado observado da spec de integração para refletir o commit local `35d03c6` à frente de `origin/main` e registrar a aprovação/revisão do texto; executar `git diff --check`.
-- [ ] **Step 4: Commitar a documentação.** Commit explícito do ADR e dos documentos reconciliados.
+- [x] **Step 1: Atualizar instruções contraditórias.** Remover referências à origem `gnome/snapshot.js` quando a origem de build/cópia for `shared/snapshot.js`; documentar os artefatos do dashboard sincronizados.
+- [x] **Step 2: Criar ADR-002 em português.** Registrar a coleta local prioritária e o dashboard GNOME como decisão aceita; referenciar ADR-001 como decisão complementar, não substituída.
+- [x] **Step 3: Revisar links e conteúdo.** Verificar caminhos existentes, UUID/serviço/cache preservados e ausência de credenciais/dados pessoais. Atualizar o estado observado da spec de integração para refletir o commit local `35d03c6` à frente de `origin/main` e registrar a aprovação/revisão do texto; executar `git diff --check`.
+- [x] **Step 4: Commitar a documentação.** Commit explícito do ADR e dos documentos reconciliados.
 
 ## Task 7: Verificação completa e prova de preservação
 

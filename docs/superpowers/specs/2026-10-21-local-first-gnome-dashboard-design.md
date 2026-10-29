@@ -2,7 +2,7 @@
 
 **Data:** 2026-10-21
 
-**Status:** aprovada; implementação isolada com testes; revisão final e validação de sessão/implantação acompanhadas no plano.
+**Status:** aprovada; implementação integrada na branch de consolidação e coberta por testes focados. A validação completa, o fast-forward de `main` e o smoke test em sessão/implantação continuam acompanhados no plano.
 
 ## 1. Objetivo e decisões aprovadas
 
@@ -43,9 +43,11 @@ Codex CLI -> rollout JSONL compatível -> leitor incremental ------------+-> dae
                                                                       |   |
 CLIs oficiais -> fallback remoto por conta, coordenado e limitado ------+   |
                                                                           v
-                                                          usage.json sanitizado
-                                                               /         \
-                                                        GNOME novo    Cinnamon
+                                                           usage.json sanitizado
+                                                                  ↓
+                                                         shared/snapshot.js
+                                                            ├─ GNOME dashboard
+                                                            └─ Cinnamon
 ```
 
 O daemon será o único escritor do snapshot publicado. Coletores produzem
@@ -255,7 +257,8 @@ Critérios de aceitação:
 
 ## 9. Referências e andamento
 
-Base factual: [estudo comparativo](../../../reports/Monitoramento%20local%20de%20limites%20IA.md),
+Base factual: estudo comparativo citado durante a elaboração (arquivo
+`reports/Monitoramento local de limites IA.md` não está disponível neste checkout),
 [statusline Claude](https://code.claude.com/docs/en/statusline) e
 [Codex App Server](https://developers.openai.com/codex/app-server/).
 

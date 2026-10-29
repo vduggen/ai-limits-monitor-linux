@@ -357,7 +357,9 @@ Se o Shell já tiver carregado JavaScript antigo, recarregue a sessão.
 
 Para Ubuntu 24.04 LTS/GNOME Shell 46, siga o guia de instalação, atualização e
 remoção em [`gnome/README.md`](gnome/README.md). A extensão lê o mesmo cache e
-usa o serviço de usuário já documentado acima.
+usa o serviço de usuário já documentado acima. GNOME e Cinnamon compartilham o
+contrato de view model em `shared/snapshot.js`; os arquivos runtime GNOME estão
+listados no guia da extensão.
 
 ## Desenvolvimento
 
