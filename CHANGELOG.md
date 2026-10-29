@@ -21,11 +21,15 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
 - Identifica leituras provenientes do Claude Desktop no menu de contas.
 - O configurador GTK verifica atualizações do clone e, após confirmação, aplica
   fast-forward seguro, compila e sincroniza somente a extensão GNOME que o abriu.
+- Adiciona uma ação independente para sincronizar a extensão GNOME instalada a
+  partir de um clone limpo e atualizado, após confirmação e sem build/restart.
 
 ### Cinnamon
 
 - O configurador GTK verifica atualizações do clone e, após confirmação, aplica
   fast-forward seguro, compila e sincroniza somente o applet Cinnamon que o abriu.
+- Adiciona uma ação independente para sincronizar o applet Cinnamon instalado a
+  partir de um clone limpo e atualizado, após confirmação e sem build/restart.
 - Identifica leituras provenientes do Claude Desktop no cartão da conta.
 - O popup passa a organizar cada conta em um cartão com plano, janelas de uso,
   barras de percentual e horários de reset, mantendo estados de erro e ações atuais.

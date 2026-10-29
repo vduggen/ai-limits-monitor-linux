@@ -1,10 +1,10 @@
 # Atualizador de projeto configurável — proposta de design
 
-**Status:** proposta aprovada em conversa, aguardando revisão deste documento antes do plano de implementação.
+**Status:** desenho aprovado em conversa; ação independente de sincronização acordada em 2026-10-29.
 
 ## Objetivo
 
-Adicionar ao configurador GTK uma forma manual e segura de verificar atualizações do clone configurado e, após confirmação explícita, aplicá-las ao serviço e ao frontend que abriu a tela.
+Adicionar ao configurador GTK formas manuais e seguras de atualizar o clone configurado e de sincronizar separadamente o frontend instalado que abriu a tela.
 
 ## Requisitos acordados
 
@@ -13,6 +13,8 @@ Adicionar ao configurador GTK uma forma manual e segura de verificar atualizaç�
 - Permitir escolher outra pasta de projeto e persistir a escolha em preferências separadas da configuração de contas.
 - Verificar atualizações sem alterar arquivos de trabalho. Havendo commits disponíveis, mostrar o resultado e pedir confirmação separada antes de aplicar.
 - Aplicar a atualização do clone, instalar dependências bloqueadas, compilar, sincronizar os arquivos do frontend que abriu a tela e reiniciar o serviço de usuário.
+- Oferecer **Sincronizar interface instalada** como ação independente: exigir confirmação, revalidar que o clone está limpo e sem commits ahead/behind do upstream, e copiar o pacote completo do frontend reconhecido. Se houver commits upstream pendentes, orientar a aplicar a atualização primeiro.
+- A sincronização independente não instala dependências, compila o projeto nem reinicia o serviço; avisar que pode ser necessário recarregar a sessão do Shell.
 - Nunca descartar alterações locais nem sobrescrever a unidade systemd instalada.
 - Manter a janela responsiva e comunicar claramente sucesso, ausência de atualizações, bloqueios e falhas parciais.
 
@@ -56,6 +58,12 @@ Quando houver commits remotos em fast-forward, a tela mostrará o caminho e a qu
 
 Não alterar a unidade systemd, configuração de contas, autenticação dos CLIs, cache ou dados dos perfis. A cópia dos arquivos de frontend não reiniciará o Shell; a tela avisará que uma recarga de sessão poderá ser necessária para ativar JavaScript já carregado. Se uma etapa posterior ao merge falhar, não executar reset, limpeza nem rollback automático; informar explicitamente que o checkout avançou e qual etapa precisa de atenção. Se a cópia funcionar mas o restart falhar, informar que os arquivos foram atualizados, mas o daemon não foi confirmado como reiniciado.
 
+### Sincronização independente da interface instalada
+
+O botão **Sincronizar interface instalada** existe somente quando o configurador foi aberto por uma instalação Cinnamon ou GNOME reconhecida e há um clone selecionado. Antes de copiar, pede confirmação de que os arquivos instalados serão substituídos. A operação busca/revalida o upstream e só prossegue com a árvore limpa e `ahead == 0` e `behind == 0`; alterações locais, branch divergente, commits locais não publicados, ausência de upstream ou commits remotos pendentes bloqueiam a cópia. Com commits pendentes, a tela orienta usar **Aplicar atualização** primeiro.
+
+A cópia usa os mesmos arquivos completos de runtime dos comandos de instalação documentados para cada frontend, incluindo o editor GTK e seus módulos compartilhados. Ela não faz merge, instalação de dependências, build nem restart do serviço. Após sucesso, a tela informa que uma recarga da sessão poderá ser necessária para ativar JavaScript já carregado. Falhas de cópia são apresentadas sem executar build ou restart.
+
 ### Execução e erros
 
 - Usar listas de argumentos com `subprocess`, sem interpolar caminhos em shell; aplicar timeouts às chamadas externas e limitar a saída exibida.
@@ -69,6 +77,7 @@ Não alterar a unidade systemd, configuração de contas, autenticação dos CLI
 - Criar testes do fluxo Git com repositórios temporários locais (incluindo remoto bare), sem rede nem clone real.
 - Injetar executor nos testes para garantir que instalação, build, cópia e restart só ocorram após confirmação, e que falhas interrompam etapas subsequentes sem rollback destrutivo.
 - Cobrir na UI o seletor, os estados de verificação, a confirmação e a apresentação de falhas.
+- Cobrir a ação independente de sincronização em clones temporários limpos, modificados e com commits ahead/behind, além da confirmação/cancelamento na UI; provar que não há build nem restart.
 - Executar os testes GTK existentes e novos com `xvfb-run -a python3 -m unittest discover -s test -v`, compilar os módulos Python, rodar `pnpm test`, `pnpm check:cinnamon`, `pnpm check:gnome` e `git diff --check`.
 - Não executar o updater contra o clone de trabalho, serviços de usuário, rede ou instalação real durante testes automatizados.
 - Atualizar as verificações de compatibilidade dos comandos de instalação para exigir que `project_updates.py` seja copiado junto de `configure.py` nos pacotes Cinnamon e GNOME.

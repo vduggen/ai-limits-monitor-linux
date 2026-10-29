@@ -231,35 +231,99 @@ def sync_installed_frontend(project_root: Path, editor_path: Path) -> bool:
         configuration_directory = source_root / "cinnamon"
         snapshot_name = "snapshot.js"
 
-    for filename in filenames:
-        _copy_file_atomically(source_directory / filename, target / filename)
+    files_to_copy = [
+        (source_directory / filename, target / filename)
+        for filename in filenames
+    ]
     if frontend == "gnome":
-        for filename in CONFIGURATION_FILES:
-            _copy_file_atomically(
-                configuration_directory / filename, target / filename
-            )
-    _copy_file_atomically(
-        source_root / "shared" / "snapshot.js", target / snapshot_name
+        files_to_copy.extend(
+            (configuration_directory / filename, target / filename)
+            for filename in CONFIGURATION_FILES
+        )
+    files_to_copy.append(
+        (source_root / "shared" / "snapshot.js", target / snapshot_name)
     )
+    _copy_files_atomically(files_to_copy)
     return True
 
 
-def _copy_file_atomically(source: Path, destination: Path) -> None:
-    if not source.is_file():
-        raise FileNotFoundError(f"Arquivo da atualização não encontrado: {source}")
-    descriptor, temporary_path = tempfile.mkstemp(
-        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
-    )
-    os.close(descriptor)
+def _copy_files_atomically(files: list[tuple[Path, Path]]) -> None:
+    """Stage and replace a frontend package, restoring old files on failure."""
+    for source, _destination in files:
+        if not source.is_file():
+            raise FileNotFoundError(f"Arquivo da atualização não encontrado: {source}")
+
+    for _source, destination in files:
+        if destination.exists() and not destination.is_file():
+            raise IsADirectoryError(f"Destino de frontend inválido: {destination}")
+        if not destination.parent.is_dir():
+            raise FileNotFoundError(
+                "Diretório de instalação do frontend não encontrado: "
+                f"{destination.parent}"
+            )
+
+    staged_paths: dict[Path, Path] = {}
+    backup_paths: dict[Path, Path] = {}
+    replaced_destinations: list[Path] = []
+    preserved_backups: set[Path] = set()
     try:
-        shutil.copy2(source, temporary_path)
-        os.replace(temporary_path, destination)
-    except Exception:
-        try:
-            os.unlink(temporary_path)
-        except FileNotFoundError:
-            pass
+        for source, destination in files:
+            descriptor, temporary_path = tempfile.mkstemp(
+                prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+            )
+            os.close(descriptor)
+            staged_paths[destination] = Path(temporary_path)
+            shutil.copy2(source, temporary_path)
+
+        for _source, destination in files:
+            if not destination.exists() and not destination.is_symlink():
+                continue
+            descriptor, backup_path = tempfile.mkstemp(
+                prefix=f".{destination.name}.", suffix=".bak", dir=destination.parent
+            )
+            os.close(descriptor)
+            backup = Path(backup_path)
+            backup_paths[destination] = backup
+            if destination.is_symlink():
+                os.unlink(backup)
+                os.symlink(os.readlink(destination), backup)
+            else:
+                shutil.copy2(destination, backup)
+
+        for _source, destination in files:
+            os.replace(staged_paths[destination], destination)
+            replaced_destinations.append(destination)
+    except Exception as error:
+        rollback_errors = []
+        for destination in reversed(replaced_destinations):
+            try:
+                backup = backup_paths.get(destination)
+                if backup is None:
+                    destination.unlink()
+                else:
+                    os.replace(backup, destination)
+            except OSError as rollback_error:
+                recovery_note = ""
+                if backup is not None and (backup.exists() or backup.is_symlink()):
+                    preserved_backups.add(backup)
+                    recovery_note = f" (backup preservado em {backup})"
+                rollback_errors.append(
+                    f"{destination}: {rollback_error}{recovery_note}"
+                )
+        if rollback_errors:
+            raise OSError(
+                "A sincronização falhou e não foi possível restaurar todos os "
+                f"arquivos anteriores: {'; '.join(rollback_errors)}"
+            ) from error
         raise
+    finally:
+        for temporary_path in (*staged_paths.values(), *backup_paths.values()):
+            if temporary_path in preserved_backups:
+                continue
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 class ProjectUpdater:
@@ -301,6 +365,13 @@ class ProjectUpdater:
     def project_path(self) -> Path | None:
         return self._project_path
 
+    @property
+    def can_sync_frontend(self) -> bool:
+        return (
+            self._project_path is not None
+            and detect_frontend_target(self.editor_path) is not None
+        )
+
     def set_project_path(self, path: str | Path) -> Path:
         project_path = validate_project_path(path, command_runner=self.command_runner)
         save_project_path(self.settings_path, project_path)
@@ -316,7 +387,7 @@ class ProjectUpdater:
         self._project_path = validate_project_path(
             self._project_path, command_runner=self.command_runner
         )
-        self._run_git(["fetch"], timeout=60)
+        self._run_git(["fetch", "--prune"], timeout=60)
         upstream = self._run_git(
             ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
             timeout=10,
@@ -352,6 +423,55 @@ class ProjectUpdater:
             dirty=dirty,
             commits=commits,
         )
+
+    def sync_current_frontend(self) -> None:
+        """Copy this checkout's frontend only when it is clean and current."""
+        if not self.can_sync_frontend:
+            raise ProjectUpdateError(
+                "preflight",
+                "Selecione um clone e abra o configurador por uma instalação "
+                "Cinnamon ou GNOME reconhecida.",
+                False,
+            )
+
+        try:
+            update_check = self.check_for_updates()
+        except (OSError, RuntimeError, ValueError) as error:
+            raise ProjectUpdateError("check", str(error), False) from error
+
+        if update_check.dirty:
+            raise ProjectUpdateError(
+                "preflight",
+                "O clone contém alterações locais; resolva-as antes de sincronizar.",
+                False,
+            )
+        if update_check.ahead and update_check.behind:
+            raise ProjectUpdateError(
+                "preflight",
+                "A branch local divergiu do upstream; resolva a divergência antes "
+                "de sincronizar.",
+                False,
+            )
+        if update_check.behind:
+            raise ProjectUpdateError(
+                "preflight",
+                "Há commits upstream pendentes; aplique a atualização antes de "
+                "sincronizar a interface.",
+                False,
+            )
+        if update_check.ahead:
+            raise ProjectUpdateError(
+                "preflight",
+                "A branch contém commits locais não publicados; alinhe o clone ao "
+                "upstream antes de sincronizar.",
+                False,
+            )
+
+        try:
+            if not sync_installed_frontend(update_check.project_path, self.editor_path):
+                raise RuntimeError("A instalação do frontend não é reconhecida.")
+        except (OSError, RuntimeError) as error:
+            raise ProjectUpdateError("frontend", str(error), False) from error
 
     def apply_updates(self, confirmed_update: UpdateCheck) -> UpdateApplyResult:
         """Fast-forward, build, sync the active frontend, and restart the service."""

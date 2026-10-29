@@ -39,6 +39,9 @@ class FakeProjectUpdater:
         self.apply_error = None
         self.apply_calls = 0
         self.apply_confirmed_update = None
+        self.can_sync_frontend = True
+        self.sync_error = None
+        self.sync_calls = 0
 
     def set_project_path(self, path):
         selected_path = Path(path)
@@ -55,6 +58,11 @@ class FakeProjectUpdater:
         if self.apply_error is not None:
             raise self.apply_error
         return self.apply_result
+
+    def sync_current_frontend(self):
+        self.sync_calls += 1
+        if self.sync_error is not None:
+            raise self.sync_error
 
 
 class ConfigurationWindowTests(unittest.TestCase):
@@ -85,12 +93,14 @@ class ConfigurationWindowTests(unittest.TestCase):
         background_runner=None,
         choose_project_directory=None,
         confirm_update=None,
+        confirm_frontend_sync=None,
     ):
         dependencies = {
             "project_updater": project_updater,
             "background_runner": background_runner,
             "choose_project_directory": choose_project_directory,
             "confirm_update": confirm_update,
+            "confirm_frontend_sync": confirm_frontend_sync,
         }
         dependencies = {
             name: dependency
@@ -233,6 +243,83 @@ class ConfigurationWindowTests(unittest.TestCase):
         self.button_by_label(window, "Aplicar atualização").clicked()
 
         self.assertEqual(project_updater.apply_calls, 0)
+
+    def test_syncFrontendButtonRequiresRecognizedInstalledFrontend(self):
+        project_updater = self.updater()
+        project_updater.can_sync_frontend = False
+        window = self.make_window(
+            self.basic_config(),
+            lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+        )
+
+        sync_button = self.button_by_label(window, "Sincronizar interface instalada")
+
+        self.assertFalse(sync_button.get_sensitive())
+
+    def test_syncFrontendCancellationDoesNotStartCopy(self):
+        project_updater = self.updater()
+        window = self.make_window(
+            self.basic_config(),
+            lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+            background_runner=self.immediate_background_runner,
+            confirm_frontend_sync=lambda: False,
+        )
+
+        self.button_by_label(window, "Sincronizar interface instalada").clicked()
+
+        self.assertEqual(project_updater.sync_calls, 0)
+        self.assertEqual(project_updater.apply_calls, 0)
+        self.assertEqual(self.restart_calls, [])
+
+    def test_syncFrontendUsesIndependentActionAndKeepsUpdateCheck(self):
+        project_updater = self.updater(can_apply=True, behind=1)
+        window = self.make_window(
+            self.basic_config(),
+            lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+            background_runner=self.immediate_background_runner,
+            confirm_frontend_sync=lambda: True,
+        )
+        self.button_by_label(window, "Verificar atualizações").clicked()
+        confirmed_update = window._update_check
+
+        self.button_by_label(window, "Sincronizar interface instalada").clicked()
+
+        self.assertEqual(project_updater.sync_calls, 1)
+        self.assertEqual(project_updater.apply_calls, 0)
+        self.assertIs(window._update_check, confirmed_update)
+        self.assertTrue(self.button_by_label(window, "Aplicar atualização").get_sensitive())
+        self.assertEqual(self.restart_calls, [])
+        status = window.update_status.get_text().lower()
+        self.assertIn("recarregar a sessão", status)
+        self.assertIn("nenhum build foi executado", status)
+        self.assertIn("serviço não foi reiniciado", status)
+
+    def test_syncFrontendFailurePreservesApplyUpdateAndReportsStage(self):
+        project_updater = self.updater(can_apply=True, behind=1)
+        project_updater.sync_error = ProjectUpdateError(
+            "frontend", "copy failed", False
+        )
+        window = self.make_window(
+            self.basic_config(),
+            lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+            background_runner=self.immediate_background_runner,
+            confirm_frontend_sync=lambda: True,
+        )
+        self.button_by_label(window, "Verificar atualizações").clicked()
+        confirmed_update = window._update_check
+
+        self.button_by_label(window, "Sincronizar interface instalada").clicked()
+
+        self.assertEqual(project_updater.apply_calls, 0)
+        self.assertIs(window._update_check, confirmed_update)
+        self.assertTrue(self.button_by_label(window, "Aplicar atualização").get_sensitive())
+        self.assertIn("frontend", window.update_status.get_text())
+        self.assertIn("copy failed", window.update_status.get_text())
+        self.assertEqual(self.restart_calls, [])
 
     def test_backgroundOperationDisablesDuplicateActions(self):
         project_updater = self.updater(can_apply=True, behind=1)

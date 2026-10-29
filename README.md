@@ -19,8 +19,9 @@ com suporte a múltiplas contas e períodos de uso.
 - interfaces sinalizam cache ausente, inválido ou desatualizado; novas gravações
   atualizam o painel sem esperar o intervalo periódico;
 - ação **Atualizar agora** solicita uma nova consulta ao serviço do usuário;
-- seção **Atualizações** em **Configurar…** verifica commits do clone e só os
-  aplica após confirmação, com fast-forward e árvore de trabalho limpa;
+- seção **Atualizações** em **Configurar…** aplica commits do clone somente após
+  confirmação e fast-forward seguro; também permite sincronizar separadamente os
+  arquivos da interface instalada a partir de um clone limpo e atualizado;
 - atalho global Cinnamon configurável para abrir/fechar o popup (padrão
   `Super+Alt+A`, sem depender de teclas de pontuação do layout ABNT2);
 - painel com uma entrada por conta utilizável, mostrando o logo, as iniciais da
@@ -332,6 +333,12 @@ onde se escolhe `% restante` ou `% usado` por conta.
 O UUID e o diretório de instalação do applet são
 `ai-limits-widget@vlduggen`. Se você tinha uma versão anterior instalada, remova
 essa entrada antiga do Cinnamon e adicione este applet novamente.
+
+No gerenciador de contas, **Sincronizar interface instalada** substitui, após
+confirmação, o pacote do applet pelos arquivos atuais do clone. O clone precisa
+estar limpo e sem commits pendentes do upstream; aplique primeiro qualquer
+atualização disponível. Essa ação não compila o projeto nem reinicia o serviço.
+Se o Shell já tiver carregado JavaScript antigo, recarregue a sessão.
 
 ## Extensão GNOME
 

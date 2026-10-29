@@ -103,6 +103,13 @@ sincroniza somente esta extensão e solicita o restart do serviço existente. Um
 falha depois do pull não descarta nem reverte os commits; a tela informa a etapa e
 se o checkout avançou.
 
+Separadamente, **Sincronizar interface instalada** substitui, após confirmação,
+todo o pacote runtime desta extensão pelos arquivos atuais do clone. A ação só
+prossegue com o clone limpo e atualizado; se houver commits upstream pendentes,
+use **Aplicar atualização** primeiro. Ela não instala dependências, não compila e
+não reinicia o serviço. Para ativar JavaScript já carregado, talvez seja necessário
+recarregar a sessão do GNOME.
+
 ## Atualizar
 
 Na raiz do clone atualizado, copie novamente os arquivos para o mesmo diretório:

@@ -57,6 +57,13 @@ serviço existente. Se uma etapa falhar depois do pull, não há rollback autom�
 Para ativar JavaScript já carregado, talvez seja necessário recarregar a sessão
 do Cinnamon.
 
+Separadamente, **Sincronizar interface instalada** substitui, após confirmação,
+todo o pacote runtime deste applet pelos arquivos atuais do clone. A ação só
+prossegue com o clone limpo e atualizado; se houver commits upstream pendentes,
+use **Aplicar atualização** primeiro. Ela não instala dependências, não compila e
+não reinicia o serviço. Para ativar JavaScript já carregado, talvez seja necessário
+recarregar a sessão do Cinnamon.
+
 A autenticação é feita pelos CLIs oficiais (`claude auth login` e `codex login`).
 O gerenciador não instala CLIs nem acessa tokens. Desativar ou remover uma conta
 do monitor não apaga a pasta nem encerra a sessão do CLI. É necessário

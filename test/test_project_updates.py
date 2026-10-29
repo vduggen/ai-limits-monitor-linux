@@ -1,11 +1,13 @@
 import importlib
 import json
+import os
 import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cinnamon"))
@@ -285,6 +287,12 @@ class ProjectUpdateCheckTests(TemporaryProjectGitRepository):
         self.assertEqual(result.behind, 1)
         self.assertFalse(result.can_apply)
 
+    def test_checkRejectsDeletedUpstreamBranch(self):
+        self.git(["update-ref", "-d", "refs/heads/main"], cwd=self.remote)
+
+        with self.assertRaisesRegex(RuntimeError, "upstream"):
+            self.updater().check_for_updates()
+
     def test_checkSupportsProjectPathWithSpaces(self):
         result = self.updater().check_for_updates()
 
@@ -292,6 +300,237 @@ class ProjectUpdateCheckTests(TemporaryProjectGitRepository):
         self.assertEqual(result.behind, 0)
         self.assertEqual(result.ahead, 0)
         self.assertFalse(result.can_apply)
+
+
+class ProjectFrontendSyncTests(TemporaryProjectGitRepository):
+    def sync_updater(self, shell):
+        editor_path = self.installed_editor(shell)
+        commands = []
+        restart_calls = []
+
+        def command_runner(command, **options):
+            commands.append(command[0])
+            return subprocess.run(command, **options)
+
+        updater = self.updater(
+            editor_path=editor_path,
+            command_runner=command_runner,
+            service_restart=lambda: restart_calls.append(True),
+        )
+        return updater, editor_path.parent, commands, restart_calls
+
+    def test_syncCurrentFrontendCopiesFullCinnamonPackageWithoutBuildOrRestart(self):
+        updater, target, commands, restart_calls = self.sync_updater("cinnamon")
+
+        updater.sync_current_frontend()
+
+        self.assertEqual(
+            {path.name: path.read_text(encoding="utf-8") for path in target.iterdir()},
+            {
+                "metadata.json": '{"uuid":"ai-limits-widget@vlduggen"}\n',
+                "applet.js": "initial cinnamon applet\n",
+                "settings-schema.json": "{}\n",
+                "configure.py": "initial configure\n",
+                "config_paths.py": "initial config paths\n",
+                "account_config.py": "initial account config\n",
+                "project_updates.py": "initial project updater\n",
+                "claude.svg": "initial claude icon\n",
+                "codex.svg": "initial codex icon\n",
+                "ai_limits_snapshot.js": "initial shared snapshot\n",
+            },
+        )
+        self.assertNotIn("pnpm", commands)
+        self.assertEqual(restart_calls, [])
+
+    def test_syncCurrentFrontendCopiesFullGnomePackageWithoutBuildOrRestart(self):
+        updater, target, commands, restart_calls = self.sync_updater("gnome")
+
+        updater.sync_current_frontend()
+
+        self.assertEqual(
+            {path.name: path.read_text(encoding="utf-8") for path in target.iterdir()},
+            {
+                "metadata.json": '{"uuid":"ai-limits-monitor@vlduggen"}\n',
+                "extension.js": "initial GNOME extension\n",
+                "cache-events.js": "initial cache events\n",
+                "claude.svg": "initial GNOME claude icon\n",
+                "codex.svg": "initial GNOME codex icon\n",
+                "configure.py": "initial configure\n",
+                "config_paths.py": "initial config paths\n",
+                "account_config.py": "initial account config\n",
+                "project_updates.py": "initial project updater\n",
+                "snapshot.js": "initial shared snapshot\n",
+            },
+        )
+        self.assertNotIn("pnpm", commands)
+        self.assertEqual(restart_calls, [])
+
+    def test_syncCurrentFrontendRejectsDirtyCloneWithoutCopyingFiles(self):
+        updater, target, _commands, _restart_calls = self.sync_updater("cinnamon")
+        (self.project / "README.md").write_text("local edit\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(RuntimeError, "alterações locais"):
+            updater.sync_current_frontend()
+
+        self.assertEqual(list(target.iterdir()), [target / "configure.py"])
+        self.assertEqual(
+            (target / "configure.py").read_text(encoding="utf-8"),
+            "installed editor\n",
+        )
+
+    def test_syncCurrentFrontendRequiresApplyingPendingUpstreamCommits(self):
+        self.push_remote_commit()
+        updater, target, _commands, restart_calls = self.sync_updater("cinnamon")
+
+        with self.assertRaisesRegex(RuntimeError, "aplique.*atualização"):
+            updater.sync_current_frontend()
+
+        self.assertEqual(list(target.iterdir()), [target / "configure.py"])
+        self.assertEqual(restart_calls, [])
+
+    def test_syncCurrentFrontendRejectsLocalCommitsAheadOfUpstream(self):
+        updater, target, _commands, restart_calls = self.sync_updater("cinnamon")
+        (self.project / "local.txt").write_text("local commit\n", encoding="utf-8")
+        self.git(["add", "local.txt"], cwd=self.project)
+        self.git(["config", "user.name", "Updater Tests"], cwd=self.project)
+        self.git(["config", "user.email", "updater-tests@example.invalid"], cwd=self.project)
+        self.git(["commit", "-m", "local change"], cwd=self.project)
+
+        with self.assertRaisesRegex(RuntimeError, "commits locais"):
+            updater.sync_current_frontend()
+
+        self.assertEqual(list(target.iterdir()), [target / "configure.py"])
+        self.assertEqual(restart_calls, [])
+
+    def test_syncCurrentFrontendRequiresKnownInstallation(self):
+        updater = self.updater()
+
+        with self.assertRaisesRegex(RuntimeError, "instalação.*reconhecida"):
+            updater.sync_current_frontend()
+
+        self.assertFalse(updater.can_sync_frontend)
+
+    def test_syncCurrentFrontendReportsMissingUpstream(self):
+        editor_path = self.installed_editor("cinnamon")
+        updater = self.updater(editor_path=editor_path)
+        self.git(["branch", "--unset-upstream"], cwd=self.project)
+
+        with self.assertRaisesRegex(RuntimeError, "upstream"):
+            updater.sync_current_frontend()
+
+        self.assertEqual(list(editor_path.parent.iterdir()), [editor_path])
+
+    def test_syncCurrentFrontendReportsCopyFailureWithoutRestart(self):
+        updater, target, _commands, restart_calls = self.sync_updater("cinnamon")
+        (target / "applet.js").mkdir()
+
+        with self.assertRaises(self.api("ProjectUpdateError")) as raised:
+            updater.sync_current_frontend()
+
+        self.assertEqual(raised.exception.stage, "frontend")
+        self.assertTrue((target / "applet.js").is_dir())
+        self.assertEqual(restart_calls, [])
+
+    def test_syncInstalledFrontendChecksAllSourcesBeforeReplacingFiles(self):
+        editor_path = self.installed_editor("cinnamon")
+        target = editor_path.parent
+        (target / "metadata.json").write_text("installed metadata\n", encoding="utf-8")
+        (self.project / "cinnamon" / "codex.svg").unlink()
+
+        with self.assertRaises(FileNotFoundError):
+            self.api("sync_installed_frontend")(self.project, editor_path)
+
+        self.assertEqual(
+            (target / "metadata.json").read_text(encoding="utf-8"),
+            "installed metadata\n",
+        )
+        self.assertEqual(
+            (target / "configure.py").read_text(encoding="utf-8"),
+            "installed editor\n",
+        )
+        self.assertFalse((target / "applet.js").exists())
+
+    def test_syncCurrentFrontendRollsBackReplacedFilesWhenCopyFails(self):
+        updater, target, _commands, restart_calls = self.sync_updater("cinnamon")
+        original_files = {
+            "metadata.json": "installed metadata\n",
+            "applet.js": "installed applet\n",
+            "configure.py": "installed editor\n",
+        }
+        for filename, contents in original_files.items():
+            (target / filename).write_text(contents, encoding="utf-8")
+
+        real_replace = os.replace
+        failed_destination = target / "applet.js"
+        failure_triggered = False
+
+        def fail_applet_replacement_once(source, destination):
+            nonlocal failure_triggered
+            if Path(destination) == failed_destination and not failure_triggered:
+                failure_triggered = True
+                raise OSError("simulated replacement failure")
+            return real_replace(source, destination)
+
+        with patch(
+            "project_updates.os.replace", side_effect=fail_applet_replacement_once
+        ):
+            with self.assertRaises(self.api("ProjectUpdateError")) as raised:
+                updater.sync_current_frontend()
+
+        self.assertTrue(failure_triggered)
+        self.assertEqual(raised.exception.stage, "frontend")
+        self.assertEqual(
+            {
+                filename: (target / filename).read_text(encoding="utf-8")
+                for filename in original_files
+            },
+            original_files,
+        )
+        self.assertEqual(restart_calls, [])
+
+    def test_syncCurrentFrontendKeepsBackupIfRollbackFails(self):
+        updater, target, _commands, restart_calls = self.sync_updater("cinnamon")
+        (target / "metadata.json").write_text(
+            "installed metadata\n", encoding="utf-8"
+        )
+        (target / "applet.js").write_text("installed applet\n", encoding="utf-8")
+
+        real_replace = os.replace
+        applet_destination = target / "applet.js"
+        metadata_destination = target / "metadata.json"
+        failed_applet_replace = False
+        failed_metadata_restore = False
+
+        def fail_copy_and_restore_once(source, destination):
+            nonlocal failed_applet_replace, failed_metadata_restore
+            source_path = Path(source)
+            destination_path = Path(destination)
+            if destination_path == applet_destination and not failed_applet_replace:
+                failed_applet_replace = True
+                raise OSError("simulated replacement failure")
+            if (
+                destination_path == metadata_destination
+                and source_path.suffix == ".bak"
+                and not failed_metadata_restore
+            ):
+                failed_metadata_restore = True
+                raise OSError("simulated restore failure")
+            return real_replace(source, destination)
+
+        with patch("project_updates.os.replace", side_effect=fail_copy_and_restore_once):
+            with self.assertRaises(self.api("ProjectUpdateError")) as raised:
+                updater.sync_current_frontend()
+
+        backups = list(target.glob(".*.bak"))
+        self.assertTrue(failed_applet_replace)
+        self.assertTrue(failed_metadata_restore)
+        self.assertEqual(raised.exception.stage, "frontend")
+        self.assertEqual(len(backups), 1)
+        self.assertIn(str(backups[0]), raised.exception.message)
+        self.assertEqual(
+            backups[0].read_text(encoding="utf-8"), "installed metadata\n"
+        )
+        self.assertEqual(restart_calls, [])
 
 
 class ProjectUpdateApplyTests(TemporaryProjectGitRepository):
