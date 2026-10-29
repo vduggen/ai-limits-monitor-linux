@@ -9,7 +9,7 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {isUsageCacheEvent} from './cache-events.js';
-import {buildMenuView, buildPanelLabels, buildSnapshotView} from './snapshot.js';
+import './snapshot.js';
 import {Dashboard} from './dashboard.js';
 import {submitRefreshRequest, readRefreshResult} from './refresh-request.js';
 
@@ -246,9 +246,10 @@ export default class AiLimitsMonitorExtension extends Extension {
         if (!this._enabled)
             return;
 
-        const snapshot = buildSnapshotView(this._readSnapshot());
+        const snapshotApi = globalThis.AiLimitsSnapshot;
+        const snapshot = snapshotApi.buildSnapshotView(this._readSnapshot());
         this._snapshot = snapshot;
-        const panelLabels = buildPanelLabels(snapshot);
+        const panelLabels = snapshotApi.buildPanelLabels(snapshot);
         this._renderPanel(panelLabels.entries);
         this._renderMenu();
         this._finishPendingRefresh(snapshot);
@@ -297,11 +298,13 @@ export default class AiLimitsMonitorExtension extends Extension {
     }
 
     _renderMenu() {
-        const view = buildMenuView(this._snapshot);
+        const snapshotApi = globalThis.AiLimitsSnapshot;
+        const view = snapshotApi.buildMenuView(this._snapshot);
         if (!this._dashboard) {
             this._dashboard = new Dashboard(this._indicator.menu,
                 () => this._requestRefresh(), () => this._launchConfiguration(),
-                provider => new Gio.FileIcon({file: this.dir.get_child(`${provider === 'claude' ? 'claude' : 'codex'}.svg`)}));
+                provider => new Gio.FileIcon({file: this.dir.get_child(`${provider === 'claude' ? 'claude' : 'codex'}.svg`)}),
+                snapshotApi);
             this._refreshItem = this._dashboard.refreshItem;
         }
         this._dashboard.update(view);

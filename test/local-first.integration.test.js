@@ -3,7 +3,7 @@ import test from 'node:test';
 import {mkdtemp, mkdir, readFile, rm, appendFile, stat} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {register} from 'tsx/esm/api';
-import {buildSnapshotView, buildMenuView} from '../gnome/snapshot.js';
+import {buildSnapshotView, buildMenuView} from '../test-support/snapshot-model.js';
 register();
 const {runDaemon} = await import('../src/collection/daemon.ts');
 const {runStatuslineBridge} = await import('../src/collection/claude-statusline.ts');

@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { St, PopupMenu, Widget, textTree } from './gnome-widgets.js';
-import { buildMenuView, buildSnapshotView, formatReset, formatSnapshotAge, windowObservationState } from '../gnome/snapshot.js';
+import * as snapshotApi from '../test-support/snapshot-model.js';
+const { buildMenuView, buildSnapshotView, formatReset, formatSnapshotAge, windowObservationState } = snapshotApi;
 const source = await readFile(new URL('../gnome/dashboard.js', import.meta.url), 'utf8');
-const { Dashboard, AccountCard } = new Function('St', 'PopupMenu', 'formatReset', 'formatSnapshotAge', 'windowObservationState', `${source.replace(/^import .*;\n/gm, '').replaceAll('export class ', 'class ')}; return {Dashboard, AccountCard};`)(St, PopupMenu, formatReset, formatSnapshotAge, windowObservationState);
+const { Dashboard, AccountCard } = new Function('St', 'PopupMenu', 'snapshotApi', `${source.replace(/^import .*;\n/gm, '').replaceAll('export class ', 'class ')}; return {Dashboard, AccountCard};`)(St, PopupMenu, snapshotApi);
 const now = Date.parse('2026-10-21T12:00:00Z');
 const account = { id: 'a', label: 'Claude pessoal', provider: 'claude', status: 'error', error: '429', displayMode: 'remaining',
   collection: { nextRetryAt: '2026-10-21T12:15:00Z', identityConfidence: 'profile' }, windows: [
@@ -12,7 +13,7 @@ const account = { id: 'a', label: 'Claude pessoal', provider: 'claude', status: 
     {id: 'w', label: 'Semanal', kind: 'weekly', usedPercent: 86, remainingPercent: 14, observedAt: '2026-10-21T11:57:00Z', source: 'claude-statusline'}] };
 const view = (accounts = [account]) => buildMenuView(buildSnapshotView(JSON.stringify({version: 1, createdAt: new Date(now).toISOString(), accounts}), now), now);
 test('cards render independent session and weekly bars, source, age and retry warning', () => {
-  const card = new AccountCard(view().groups[0].accounts[0], () => now);
+  const card = new AccountCard(view().groups[0].accounts[0], () => now, () => null, snapshotApi);
   assert.match(textTree(card.actor), /Sessão \(5h\).*63%/);
   assert.match(textTree(card.actor), /Semanal.*14%/);
   assert.match(textTree(card.actor), /429/); assert.match(textTree(card.actor), /Próxima tentativa/);
@@ -29,18 +30,18 @@ test('cards render independent session and weekly bars, source, age and retry wa
   card.destroy(); assert.equal(session.track.signals.size, 0);
 });
 test('reset calendar labels today as Hoje and keeps the date on other days', () => {
-  const today = new AccountCard(view().groups[0].accounts[0], () => now);
+  const today = new AccountCard(view().groups[0].accounts[0], () => now, () => null, snapshotApi);
   assert.match(today.windows.get('s').calendar.text, /^Hoje às \d{2}:\d{2}$/);
   today.destroy();
   const later = {...account, windows: [{...account.windows[0], resetsAt: new Date(now + 30 * 3600000).toISOString()}]};
-  const card = new AccountCard(view([later]).groups[0].accounts[0], () => now);
+  const card = new AccountCard(view([later]).groups[0].accounts[0], () => now, () => null, snapshotApi);
   assert.doesNotMatch(card.windows.get('s').calendar.text, /Hoje/);
   assert.match(card.windows.get('s').calendar.text, /^.+?, \d{2}\/\d{2}(?:\/\d{2})? às \d{2}:\d{2}$/);
   card.destroy();
 });
 test('dashboard reconciles by identity without replacing focused footer, scroll or surviving cards', () => {
   const menu = { items: [], addMenuItem(item) { this.items.push(item); } };
-  const dashboard = new Dashboard(menu, () => {}, () => {});
+  const dashboard = new Dashboard(menu, () => {}, () => {}, () => null, snapshotApi);
   dashboard.update(view()); const first = dashboard.cards.get('a');
   const footer = dashboard.refreshItem; const scroll = dashboard.scroll; scroll.position = 80; footer.focused = true;
   dashboard.update(view([{...account, windows: [{...account.windows[0], usedPercent: 40, remainingPercent: 60}]}]));
@@ -55,13 +56,13 @@ test('dashboard reconciles by identity without replacing focused footer, scroll 
 
 test('future timestamps never become an observed-current label during countdown updates', () => {
   const a={...account,windows:[{...account.windows[0],observedAt:'2026-10-22T12:00:00Z'}]};
-  const card=new AccountCard(view([a]).groups[0].accounts[0],()=>now);
+  const card=new AccountCard(view([a]).groups[0].accounts[0],()=>now,()=>null,snapshotApi);
   assert.match(card.windows.get('s').time.text,/último conhecido/i);
   card.updateTime(now+15000);assert.match(card.windows.get('s').time.text,/último conhecido/i);card.destroy();
 });
 
 test('compact card keeps collection details collapsed and preserves disclosure while quota updates', () => {
-  const card = new AccountCard(view().groups[0].accounts[0], () => now);
+  const card = new AccountCard(view().groups[0].accounts[0], () => now, () => null, snapshotApi);
   assert.equal(card.details.visible, false);
   assert.equal(card.windowBox.vertical, false);
   assert.equal(card.badge.icon_size, 20);

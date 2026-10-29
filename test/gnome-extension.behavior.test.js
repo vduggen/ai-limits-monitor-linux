@@ -185,9 +185,7 @@ function makeHarness() {
     "PanelMenu",
     "PopupMenu",
     "isUsageCacheEvent",
-    "buildMenuView",
-    "buildPanelLabels",
-    "buildSnapshotView",
+    "globalThis",
     "Dashboard",
     "submitRefreshRequest",
     "readRefreshResult",
@@ -202,9 +200,11 @@ function makeHarness() {
     {Button: class extends Widget { constructor() { super(); this.menu = new Menu(); } }},
     PopupMenu,
     isUsageCacheEvent,
-    () => ({ statusText: "Status", emptyText: "Sem dados", groups: [] }),
-    () => ({ entries: [] }),
-    (contents) => contents === null ? { createdAt: null } : JSON.parse(contents),
+    { AiLimitsSnapshot: {
+      buildMenuView: () => ({ statusText: "Status", emptyText: "Sem dados", groups: [] }),
+      buildPanelLabels: () => ({ entries: [] }),
+      buildSnapshotView: (contents) => contents === null ? { createdAt: null } : JSON.parse(contents),
+    }},
     class {
       constructor(menu, refresh, configure) {
         this.refreshItem = new MenuItem('Atualizar agora'); this.refreshItem.connect('activate', refresh); menu.addMenuItem(this.refreshItem);

@@ -83,6 +83,10 @@ var AiLimitsSnapshot = (function () {
             usedPercent: candidate.usedPercent,
             remainingPercent: candidate.remainingPercent,
         };
+        ["source", "observedAt", "sourceEventAt", "fetchedAt", "identityConfidence", "bindingGeneration"].forEach(function (property) {
+            if (typeof candidate[property] === "string")
+                normalized[property] = candidate[property];
+        });
         if (typeof candidate.resetsAt === "string")
             normalized.resetsAt = candidate.resetsAt;
         if (candidate.resetSource === "statusLine" || candidate.resetSource === "oauth")
@@ -117,12 +121,22 @@ var AiLimitsSnapshot = (function () {
             displayMode: candidate.displayMode === "used" ? "used" : "remaining",
             windows: windows,
         };
-        ["plan", "email", "error", "checkedAt", "source"].forEach(function (property) {
+        ["plan", "error", "checkedAt", "source"].forEach(function (property) {
             if (typeof candidate[property] === "string")
                 normalized[property] = property === "plan"
                     ? formatPlanName(candidate[property])
                     : candidate[property];
         });
+        if (typeof candidate.email === "string"
+            && (!isRecord(candidate.collection) || candidate.collection.identityConfidence === "confirmed"))
+            normalized.email = candidate.email;
+        if (isRecord(candidate.collection)) {
+            normalized.collection = {
+                identityConfidence: candidate.collection.identityConfidence === "confirmed" ? "confirmed" : "profile",
+                nextRetryAt: typeof candidate.collection.nextRetryAt === "string" ? candidate.collection.nextRetryAt : null,
+                revision: Number.isSafeInteger(candidate.collection.revision) ? candidate.collection.revision : 0,
+            };
+        }
         normalized.stale = candidate.stale === true;
         return normalized;
     }
@@ -268,6 +282,76 @@ var AiLimitsSnapshot = (function () {
         return hours > 0 ? "há " + elapsedDays + "d " + hours + "h" : "há " + elapsedDays + "d";
     }
 
+    function windowObservationState(window, nowMs) {
+        nowMs = nowMs === undefined ? Date.now() : nowMs;
+        if (typeof window.resetsAt === "string" && Number.isFinite(Date.parse(window.resetsAt))
+            && Date.parse(window.resetsAt) <= nowMs)
+            return "expired";
+
+        var observedAt = Date.parse(observationTimestamp(window));
+        return !Number.isFinite(observedAt) || observedAt > nowMs + 5000 || nowMs - observedAt >= 120000
+            ? "last-known"
+            : "observed";
+    }
+
+    function observationTimestamp(window) {
+        if (typeof window.sourceEventAt === "string" && Number.isFinite(Date.parse(window.sourceEventAt)))
+            return window.sourceEventAt;
+        if (typeof window.observedAt === "string" && Number.isFinite(Date.parse(window.observedAt)))
+            return window.observedAt;
+        return undefined;
+    }
+
+    function buildWindowView(window, mode, nowMs) {
+        nowMs = nowMs === undefined ? Date.now() : nowMs;
+        var displayMode = mode === "used" ? "used" : "remaining";
+        var percent = displayMode === "used" ? window.usedPercent : window.remainingPercent;
+        var state = windowObservationState(window, nowMs);
+        var observedAt = observationTimestamp(window);
+        var observedTimestamp = Date.parse(observedAt);
+        var ageText = Number.isFinite(observedTimestamp) && observedTimestamp <= nowMs + 5000
+            ? "Observado " + formatSnapshotAge(Math.max(0, nowMs - observedTimestamp))
+            : "Idade da observação desconhecida";
+        var sourceLabels = {
+            "claude-statusline": "CLI Claude · statusline local",
+            "claude-desktop": "Claude Desktop · histórico local",
+            "codex-rollout": "CLI Codex · sessão local",
+            "claude-sdk": "CLI Claude · consulta SDK",
+            "codex-rpc": "CLI Codex · consulta RPC",
+        };
+        var sourceText = sourceLabels[window.source] || "Fonte desconhecida";
+        var label = window.kind === "session" && window.windowDurationMins === 300
+            ? "Sessão (5h)"
+            : window.label;
+        var resetText = formatReset(window.resetsAt, nowMs);
+        var stateText = state === "expired"
+            ? "Reset vencido; aguardando confirmação."
+            : state === "last-known" ? "Último conhecido." : "Observação local recebida.";
+
+        return {
+            id: window.id,
+            kind: window.kind,
+            label: label,
+            percent: percent,
+            mode: displayMode,
+            fillRatio: percent / 100,
+            severity: window.usedPercent >= 90 ? "critical" : window.usedPercent >= 75 ? "warning" : "normal",
+            state: state,
+            sourceText: sourceText,
+            ageText: ageText,
+            resetText: resetText,
+            ...(typeof window.resetsAt === "string" ? { resetsAt: window.resetsAt } : {}),
+            ...(typeof observedAt === "string" ? { observedAt: observedAt } : {}),
+            accessibleText: label + ": " + percent + "% " + (displayMode === "used" ? "usado" : "restante")
+                + ". " + stateText + " " + sourceText + ". " + ageText + ". " + resetText
+                + ". Idade remota não confirmada.",
+        };
+    }
+
+    function hasObservationTimestamp(window) {
+        return observationTimestamp(window) !== undefined;
+    }
+
     function buildMenuView(snapshotView, nowMs) {
         nowMs = nowMs === undefined ? Date.now() : nowMs;
         if (snapshotView.state === "missing") {
@@ -324,8 +408,10 @@ var AiLimitsSnapshot = (function () {
                     ? "Fonte: " + sourceLabel + (dataAge ? " · leitura " + dataAge : "")
                         + (account.stale ? " (antiga)" : "")
                     : null;
-                var windows = account.status === "ok"
+                var hasLocalObservation = account.windows.some(hasObservationTimestamp);
+                var windows = account.status === "ok" || hasLocalObservation
                     ? account.windows.map(function (window) {
+                        var windowView = buildWindowView(window, mode, nowMs);
                         var percent = mode === "used" ? window.usedPercent : window.remainingPercent;
                         var modeLabel = mode === "used" ? "usado" : "restante";
                         var resetText = formatReset(window.resetsAt, nowMs);
@@ -337,22 +423,31 @@ var AiLimitsSnapshot = (function () {
                             resetText += " · reset " + resetSourceLabel
                                 + (resetAge ? " lido " + resetAge : "");
                         }
-                        return {
+                        return Object.assign({}, window, windowView, {
                             text: window.label + ": " + percent + "% " + modeLabel + " · "
                                 + resetText
                                 + (account.stale ? " · antiga" : ""),
-                        };
+                        });
                     })
                     : [];
                 var menuAccount = {
+                    id: account.id,
+                    provider: account.provider,
+                    warning: account.error || null,
                     title: account.label + (account.plan ? " · " + account.plan : ""),
-                    metadata: [account.email, sourceMetadata]
+                    metadata: [account.email,
+                        account.collection && account.collection.identityConfidence === "profile"
+                            ? "Observação do perfil; identidade não confirmada"
+                            : null,
+                        sourceMetadata]
                         .filter(Boolean).join(" · "),
                     error: account.error || (account.status === "error"
                         ? "Não foi possível consultar esta conta."
                         : null),
                     windows: windows,
                 };
+                if (account.collection && account.collection.nextRetryAt)
+                    menuAccount.nextRetryAt = account.collection.nextRetryAt;
                 if (account.status === "ok" && windows.length === 0 && !account.error)
                     menuAccount.noLimits = "Esta conta não reportou limites.";
                 return menuAccount;
@@ -389,19 +484,34 @@ var AiLimitsSnapshot = (function () {
                     account.status === "error"
                     || (account.status === "ok" && Array.isArray(account.windows) && account.windows.length > 0)
                 );
-            }).forEach(function (account) {
-                var initials = accountInitials(account);
-                var values = providerIndicators([account], provider).map(function (indicator) {
-                    return indicator.value + "%";
-                }).join(" · ");
+                }).forEach(function (account) {
+                    var initials = accountInitials(account);
+                var hasLocalObservation = account.windows.some(hasObservationTimestamp);
+                var values = providerIndicators([Object.assign({}, account, { status: "ok" })], provider).map(function (indicator) {
+                        return indicator.value + "%";
+                    }).join(" · ");
                 var accountStaleMarker = account.stale ? " (antigo)" : staleMarker;
-                entries.push({
+                var canShowRetainedValues = account.status !== "error"
+                    || (hasLocalObservation && Boolean(account.error));
+                var shownValues = canShowRetainedValues ? values : "";
+                var entry = {
                     provider: provider,
                     initials: initials,
-                    text: account.status === "error"
+                    text: account.status === "error" && !shownValues
                         ? initials + " --% (erro)" + accountStaleMarker
-                        : initials + " " + values + accountStaleMarker,
-                });
+                        : initials + " " + (shownValues || "--%")
+                            + (account.status === "error" || account.windows.some(function (window) {
+                                return hasObservationTimestamp(window)
+                                    && windowObservationState(window, Date.parse(snapshotView.createdAt)
+                                        + (snapshotView.ageMs || 0)) !== "observed";
+                            }) ? " ~" : "")
+                            + (account.error && hasLocalObservation && shownValues ? " !" : "")
+                            + (accountStaleMarker || ""),
+                };
+                if (account.status === "error" && account.error)
+                    entry.tooltip = account.label + " · Sessão · Semanal"
+                        + (account.error ? " · " + account.error : "");
+                entries.push(entry);
             });
         });
 
@@ -427,8 +537,10 @@ var AiLimitsSnapshot = (function () {
         buildMenuView: buildMenuView,
         buildPanelLabels: buildPanelLabels,
         buildSnapshotView: buildSnapshotView,
+        buildWindowView: buildWindowView,
         formatSnapshotAge: formatSnapshotAge,
         formatReset: formatReset,
+        windowObservationState: windowObservationState,
     };
 })();
 

@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildMenuView, buildPanelLabels, buildSnapshotView, formatReset } from "../test-support/snapshot-model.js";
+import {
+  buildMenuView,
+  buildPanelLabels,
+  buildSnapshotView,
+  buildWindowView,
+  formatReset,
+  windowObservationState,
+} from "../test-support/snapshot-model.js";
 
 const NOW = Date.parse("2026-09-30T12:00:00.000Z");
 
@@ -208,22 +215,23 @@ test("menuViewExplainsCacheStatesAndFiltersUnsupportedAccounts", () => {
   assert.match(menu.statusText, /Cache desatualizado/);
   assert.match(menu.statusText, /há 4min/);
   assert.deepEqual(menu.groups.map(({ provider }) => provider), ["claude", "codex"]);
-  assert.deepEqual(menu.groups[0].accounts[0], {
-    title: "claude-error · Pro",
-    metadata: "claude@example.test",
-    error: "Falha de autenticação",
-    windows: [],
-  });
-  assert.deepEqual(menu.groups[1].accounts[0], {
-    title: "codex-ok",
-    metadata: "Fonte: Codex",
-    error: null,
-    windows: [
-      {
-        text: `Semanal: 32% usado · ${formatReset("2026-10-01T12:00:00.000Z", NOW)}`,
-      },
-    ],
-  });
+  const claudeMenuAccount = menu.groups[0].accounts[0];
+  assert.equal(claudeMenuAccount.id, "claude-error");
+  assert.equal(claudeMenuAccount.provider, "claude");
+  assert.equal(claudeMenuAccount.title, "claude-error · Pro");
+  assert.equal(claudeMenuAccount.metadata, "claude@example.test");
+  assert.equal(claudeMenuAccount.error, "Falha de autenticação");
+  assert.deepEqual(claudeMenuAccount.windows, []);
+  const codexMenuAccount = menu.groups[1].accounts[0];
+  assert.equal(codexMenuAccount.id, "codex-ok");
+  assert.equal(codexMenuAccount.provider, "codex");
+  assert.equal(codexMenuAccount.title, "codex-ok");
+  assert.equal(codexMenuAccount.metadata, "Fonte: Codex");
+  assert.equal(codexMenuAccount.error, null);
+  assert.equal(codexMenuAccount.windows[0].text,
+    `Semanal: 32% usado · ${formatReset("2026-10-01T12:00:00.000Z", NOW)}`);
+  assert.equal(codexMenuAccount.windows[0].percent, 32);
+  assert.equal(codexMenuAccount.windows[0].mode, "used");
 
   const unsupportedOnly = buildMenuView(buildSnapshotView(
     snapshotText([account({ id: "unsupported", status: "unsupported" })]),
@@ -389,4 +397,90 @@ test("panelEntriesOmitUnconfiguredProvidersAndMarkStaleValues", () => {
     { provider: "codex", initials: "CP", text: "CP 20% (antigo)" },
   ]);
   assert.deepEqual(buildPanelLabels(buildSnapshotView(null, NOW)).entries, []);
+});
+
+test("sharedSnapshotBuildsLocalFirstCardViewAndKeepsLegacyMenuText", () => {
+  const observedAt = new Date(NOW - 30_000).toISOString();
+  const sourceEventAt = new Date(NOW - 45_000).toISOString();
+  const localWindow = window({
+    id: "session",
+    kind: "session",
+    label: "Sessão",
+    usedPercent: 37,
+    resetsAt: new Date(NOW + 60 * 60_000).toISOString(),
+  });
+  Object.assign(localWindow, {
+    source: "claude-statusline",
+    observedAt,
+    sourceEventAt,
+    identityConfidence: "profile",
+    bindingGeneration: "generation-a",
+    windowDurationMins: 300,
+  });
+  const text = snapshotText([{
+    ...account({ id: "claude-local", label: "Claude local", windows: [localWindow] }),
+    collection: {
+      identityConfidence: "profile",
+      nextRetryAt: new Date(NOW + 5 * 60_000).toISOString(),
+      revision: 4,
+    },
+  }]);
+  const view = buildSnapshotView(text, NOW);
+  const menu = buildMenuView(view, NOW);
+  const menuAccount = menu.groups[0].accounts[0];
+  const menuWindow = menuAccount.windows[0];
+  const cardWindow = buildWindowView(view.accounts[0].windows[0], "remaining", NOW);
+  const { accessibleText, ...cardView } = cardWindow;
+
+  assert.equal(menuWindow.text.startsWith("Sessão: 63% restante · "), true);
+  assert.equal(menuWindow.id, "session");
+  assert.equal(menuWindow.sourceText, "CLI Claude · statusline local");
+  assert.equal(menuWindow.observedAt, sourceEventAt);
+  assert.equal(menuAccount.id, "claude-local");
+  assert.match(menuAccount.metadata, /identidade não confirmada/i);
+  assert.equal(menuAccount.nextRetryAt, new Date(NOW + 5 * 60_000).toISOString());
+  assert.deepEqual(cardView, {
+    id: "session",
+    kind: "session",
+    label: "Sessão (5h)",
+    percent: 63,
+    mode: "remaining",
+    fillRatio: 0.63,
+    severity: "normal",
+    state: "observed",
+    sourceText: "CLI Claude · statusline local",
+    ageText: "Observado há 45s",
+    resetText: formatReset(localWindow.resetsAt, NOW),
+    resetsAt: localWindow.resetsAt,
+    observedAt: sourceEventAt,
+  });
+  assert.match(accessibleText, /Observação local recebida/);
+});
+
+test("windowObservationStateUses120SecondFreshnessAndExpiresAtReset", () => {
+  assert.equal(windowObservationState({ observedAt: new Date(NOW - 119_999).toISOString() }, NOW), "observed");
+  assert.equal(windowObservationState({ observedAt: new Date(NOW - 120_000).toISOString() }, NOW), "last-known");
+  assert.equal(windowObservationState({ observedAt: new Date(NOW + 5_001).toISOString() }, NOW), "last-known");
+  assert.equal(windowObservationState({ resetsAt: new Date(NOW).toISOString(), observedAt: new Date(NOW).toISOString() }, NOW), "expired");
+  assert.equal(windowObservationState({ observedAt: "invalid" }, NOW), "last-known");
+});
+
+test("unconfirmed collection identities hide email and use a valid observation fallback", () => {
+  const observedAt = new Date(NOW - 10_000).toISOString();
+  const view = buildSnapshotView(snapshotText([{
+    ...account({
+      id: "profile-bound",
+      email: "synthetic@example.test",
+      windows: [{
+        ...window({ id: "session", kind: "session", label: "Sessão", usedPercent: 40 }),
+        source: "claude-statusline",
+        sourceEventAt: "invalid",
+        observedAt,
+      }],
+    }),
+    collection: {},
+  }]), NOW);
+
+  assert.equal(view.accounts[0].email, undefined);
+  assert.equal(windowObservationState(view.accounts[0].windows[0], NOW), "observed");
 });

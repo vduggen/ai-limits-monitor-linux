@@ -1,6 +1,5 @@
 import St from 'gi://St';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
-import {formatReset, formatSnapshotAge, windowObservationState} from './snapshot.js';
 
 function label(parent, style = '') {
     const actor = new St.Label({style_class: style, x_expand: true});
@@ -9,9 +8,10 @@ function label(parent, style = '') {
 }
 
 export class AccountCard {
-    constructor(view, clock = Date.now, iconForProvider = () => null) {
+    constructor(view, clock = Date.now, iconForProvider = () => null, snapshotApi) {
         this.clock = clock;
         this.iconForProvider = iconForProvider;
+        this.snapshotApi = snapshotApi;
         this.actor = new St.BoxLayout({vertical: true, style_class: 'ai-limits-card', x_expand: true});
         this.header = new St.BoxLayout({style_class: 'ai-limits-card-header', x_expand: true});
         this.actor.add_child(this.header);
@@ -101,12 +101,12 @@ export class AccountCard {
         this.retry.visible = Boolean(this.retry.text);
         for (const row of this.windows.values()) {
             const w = row.window;
-            const freshness = windowObservationState(w, nowMs);
+            const windowView = this.snapshotApi.buildWindowView(w, w.mode, nowMs);
+            const freshness = windowView.state;
             const expired = freshness === 'expired';
-            const age = Date.parse(w.observedAt);
             const known = freshness === 'last-known';
             const state = expired ? 'Reset vencido; aguardando confirmação' : known ? 'Último conhecido' : 'Observado';
-            const ageText = Number.isFinite(age) && age <= nowMs + 5000 ? formatSnapshotAge(Math.max(0, nowMs - age)) : 'idade desconhecida';
+            const ageText = windowView.ageText;
             const delta = Date.parse(w.resetsAt) - nowMs;
             const minutes = Math.max(1, Math.ceil(delta / 60000));
             const duration = minutes >= 1440 ? `${Math.floor(minutes / 1440)}d ${Math.floor(minutes % 1440 / 60)}h` : minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}min` : `${minutes}min`;
@@ -128,9 +128,9 @@ export class AccountCard {
             } else {
                 row.calendar.text = '';
             }
-            row.detail.text = `${w.label} · ${w.sourceText}\n${state} · ${ageText}\n${formatReset(w.resetsAt, nowMs)}`;
+            row.detail.text = `${windowView.label} · ${windowView.sourceText}\n${state} · ${ageText}\n${windowView.resetText}`;
             row.track.opacity = expired ? 80 : known ? 160 : 255;
-            row.actor.accessible_name = `${row.heading.text}: ${w.percent}% ${w.mode === 'used' ? 'usado' : 'restante'}. ${w.severity === 'critical' ? 'Consumo crítico.' : w.severity === 'warning' ? 'Consumo elevado.' : ''} ${row.detail.text}. ${row.time.text}. ${row.calendar.text}. Idade remota não confirmada.`;
+            row.actor.accessible_name = `${windowView.accessibleText} ${row.time.text}. ${row.calendar.text}`;
         }
         this.metadata.text = [this.view.metadata, this.view.warning ?? this.view.error].filter(Boolean).join('\n');
     }
@@ -142,8 +142,9 @@ export class AccountCard {
 }
 
 export class Dashboard {
-    constructor(menu, onRefresh, onConfigure, iconForProvider = () => null) {
+    constructor(menu, onRefresh, onConfigure, iconForProvider = () => null, snapshotApi) {
         this.iconForProvider = iconForProvider;
+        this.snapshotApi = snapshotApi;
         this.cards = new Map();
         this.item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
         this.scroll = new St.ScrollView({style_class: 'ai-limits-dashboard', overlay_scrollbars: true, x_expand: true});
@@ -175,7 +176,7 @@ export class Dashboard {
         accounts.forEach((account, index) => {
             let card = this.cards.get(account.id);
             if (!card) {
-                card = new AccountCard(account, Date.now, this.iconForProvider);
+                card = new AccountCard(account, Date.now, this.iconForProvider, this.snapshotApi);
                 this.cards.set(account.id, card);
                 this.content.add_child(card.actor);
             } else {
