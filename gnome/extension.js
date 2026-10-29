@@ -21,9 +21,26 @@ const CACHE_PATH = GLib.build_filenamev([
     CACHE_DIRECTORY,
     'usage.json',
 ]);
+const FORCE_OAUTH_REQUEST_PATH = `${CACHE_PATH}.force-oauth`;
 const CACHE_DEBOUNCE_MS = 150;
 const MONITOR_RETRY_SECONDS = 5;
 const REFRESH_TIMEOUT_SECONDS = 60;
+
+function writeForcedOAuthRefreshRequest() {
+    GLib.mkdir_with_parents(CACHE_DIRECTORY, 0o700);
+    GLib.file_set_contents(FORCE_OAUTH_REQUEST_PATH, '1');
+    const [ok, contents] = GLib.file_get_contents(FORCE_OAUTH_REQUEST_PATH);
+    if (!ok || new TextDecoder('utf-8').decode(contents).trim() !== '1')
+        throw new Error('Não foi possível solicitar uma nova leitura OAuth.');
+}
+
+function clearForcedOAuthRefreshRequest() {
+    try {
+        GLib.unlink(FORCE_OAUTH_REQUEST_PATH);
+    } catch (error) {
+        // The service may already have consumed the one-shot request.
+    }
+}
 
 export default class AiLimitsMonitorExtension extends Extension {
     enable() {
@@ -175,6 +192,7 @@ export default class AiLimitsMonitorExtension extends Extension {
         if (!expectedRefresh || this._pendingRefresh !== expectedRefresh)
             return;
 
+        clearForcedOAuthRefreshRequest();
         this._clearPendingRefresh(expectedRefresh);
         Main.notify('Não foi possível atualizar os limites.', error.message ?? String(error));
     }
@@ -194,6 +212,7 @@ export default class AiLimitsMonitorExtension extends Extension {
             () => {
                 this._refreshTimeoutId = 0;
                 if (this._enabled && this._pendingRefresh === pendingRefresh) {
+                    clearForcedOAuthRefreshRequest();
                     this._clearPendingRefresh(pendingRefresh);
                     Main.notify(
                         'A atualização está demorando.',
@@ -205,6 +224,7 @@ export default class AiLimitsMonitorExtension extends Extension {
         );
 
         try {
+            writeForcedOAuthRefreshRequest();
             const process = Gio.Subprocess.new(
                 ['systemctl', '--user', 'restart', 'ai-limits-widget.service'],
                 Gio.SubprocessFlags.NONE,

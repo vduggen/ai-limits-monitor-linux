@@ -162,10 +162,15 @@ O monitor lê o histórico local do Claude Desktop em
 `~/.config/Claude/plan-usage-history.json`, quando disponível, associando cada
 organização ao `oauthAccount.organizationUuid` do `.claude.json` do perfil.
 Não usa percentuais para adivinhar a conta. Entre Desktop e status line, usa a
-observação local válida mais recente. `claudeDesktopMaxAgeSeconds` (padrão: 1200)
+observação local válida mais recente; uma leitura OAuth bem-sucedida mais nova
+não é substituída por uma amostra local mais antiga. `claudeDesktopMaxAgeSeconds` (padrão: 1200)
 define sua validade; o Desktop pode atualizar o histórico aproximadamente a
 cada 15 minutos. O histórico não informa horários de reset, portanto eles não
 são exibidos para essa leitura. O formato é interno ao Desktop e pode mudar.
+Se houver um horário de reset futuro obtido anteriormente por OAuth ou status
+line para o mesmo perfil e janela, ele é mantido junto ao percentual mais recente
+do Desktop. A interface identifica a origem e a idade desse horário; resets
+vencidos ou de outro perfil nunca são reaproveitados.
 
 Para evitar consultas repetidas à API de uso, o daemon tenta primeiro a leitura
 local do `statusLine` do Claude Code. O recurso é opcional e precisa ser habilitado
@@ -232,6 +237,24 @@ como antiga e exibe o motivo da espera. O coletor local depende do status line
 do Claude Code; outros clientes não garantem sua atualização. Erros transitórios aguardam 5 minutos; HTTP 429 usa
 15/30/60 minutos com jitter positivo de até 10%, respeitando também o prazo do
 CLI. Não tenta fontes de rede em cascata no mesmo ciclo.
+
+**Atualizar agora** solicita uma leitura OAuth imediata, mesmo durante o intervalo
+normal após uma consulta bem-sucedida. A ação não ignora um backoff de falha ou
+HTTP 429. A consulta continua sendo uma leitura de cotas, sem gerar uma resposta
+de modelo; o intervalo automático permanece conservador para reduzir chamadas e
+evitar rate limits.
+
+O cabeçalho informa quando o cache do painel foi atualizado; cada cartão informa
+a idade da leitura de cotas. São tempos diferentes: a atualização periódica do
+serviço não torna automaticamente mais novo o dado recebido do provedor. A
+status line é a fonte local mais útil durante sessões Claude Code ativas, pois
+inclui os horários de reset sem uma consulta adicional. Ela não consegue buscar
+limites novos quando não há uma sessão Claude Code recebendo respostas.
+
+Não configure `statusLine.refreshInterval` apenas para tentar atualizar cotas:
+essa opção executa o script novamente com o último JSON recebido, não solicita
+uma leitura nova à Anthropic. Como o coletor registra o momento da execução,
+reexecuções periódicas poderiam fazer uma amostra antiga parecer recente.
 
 ## Executar e instalar o serviço
 

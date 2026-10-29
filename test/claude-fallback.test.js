@@ -47,6 +47,141 @@ test("the newest fresh Desktop sample wins over status line and suppresses OAuth
   assert.equal(result.source, "desktop");
 });
 
+test("a fresh Desktop percentage carries a still-future exact OAuth reset for the same profile", async (t) => {
+  const directory = await temporaryDirectory(t);
+  const account = { id: "desktop-reset", label: "Desktop", provider: "claude", configDir: directory };
+  const previous = usage(account, new Date(NOW - 5 * 60_000).toISOString(), {
+    source: "oauth",
+    stale: false,
+    windows: [{
+      id: "five_hour",
+      kind: "session",
+      label: "Sessão",
+      usedPercent: 32,
+      remainingPercent: 68,
+      resetsAt: new Date(NOW + 3 * 60 * 60_000).toISOString(),
+    }],
+  });
+  const result = await readClaudeAccountUsage(account, 2, {
+    previous,
+    state: emptyProviderState(),
+    oauthMinIntervalSeconds: 900,
+    statusLineMaxAgeSeconds: 180,
+    now: NOW,
+    readDesktop: async () => usage(account, new Date(NOW - 30_000).toISOString(), {
+      source: "desktop",
+      stale: false,
+    }),
+    readOAuth: async () => { throw new Error("fresh local usage should win"); },
+  });
+
+  assert.equal(result.source, "desktop");
+  assert.equal(result.windows[0].usedPercent, 42);
+  assert.equal(result.windows[0].resetsAt, previous.windows[0].resetsAt);
+  assert.equal(result.windows[0].resetSource, "oauth");
+  assert.equal(result.windows[0].resetCheckedAt, previous.checkedAt);
+});
+
+test("an older Desktop sample does not replace a newer successful OAuth reading", async (t) => {
+  const directory = await temporaryDirectory(t);
+  const account = { id: "desktop-older", label: "Claude", provider: "claude", configDir: directory };
+  const previous = usage(account, new Date(NOW - 2 * 60_000).toISOString(), {
+    source: "oauth",
+    stale: false,
+    windows: [{
+      id: "five_hour",
+      kind: "session",
+      label: "Sessão",
+      usedPercent: 61,
+      remainingPercent: 39,
+      resetsAt: new Date(NOW + 2 * 60 * 60_000).toISOString(),
+    }],
+  });
+  const state = emptyProviderState();
+  state.claudeOAuth[claudeProfileKey(account)] = {
+    lastAttemptAt: Date.parse(previous.checkedAt),
+    nextAllowedAt: NOW + 13 * 60_000,
+  };
+  let oauthCalls = 0;
+  const result = await readClaudeAccountUsage(account, 2, {
+    previous,
+    state,
+    oauthMinIntervalSeconds: 900,
+    statusLineMaxAgeSeconds: 180,
+    now: NOW,
+    readDesktop: async () => usage(account, new Date(NOW - 10 * 60_000).toISOString(), {
+      source: "desktop",
+      stale: false,
+    }),
+    readOAuth: async () => { oauthCalls++; throw new Error("cached OAuth should win"); },
+  });
+
+  assert.equal(oauthCalls, 0);
+  assert.equal(result.source, "oauth");
+  assert.equal(result.windows[0].usedPercent, 61);
+});
+
+test("an explicit refresh bypasses a successful OAuth interval even with fresh local data", async (t) => {
+  const directory = await temporaryDirectory(t);
+  const account = { id: "manual-refresh", label: "Claude", provider: "claude", configDir: directory };
+  const state = emptyProviderState();
+  state.claudeOAuth[claudeProfileKey(account)] = {
+    lastAttemptAt: NOW - 60_000,
+    nextAllowedAt: NOW + 14 * 60_000,
+  };
+  let oauthCalls = 0;
+  const result = await readClaudeAccountUsage(account, 2, {
+    state,
+    oauthMinIntervalSeconds: 900,
+    statusLineMaxAgeSeconds: 180,
+    now: NOW,
+    forceOAuth: true,
+    readDesktop: async () => usage(account, new Date(NOW - 30_000).toISOString(), {
+      source: "desktop",
+      stale: false,
+    }),
+    readOAuth: async () => {
+      oauthCalls++;
+      return usage(account, new Date(NOW).toISOString(), { windows: [
+        { id: "five_hour", kind: "session", label: "Sessão", usedPercent: 55, remainingPercent: 45 },
+      ] });
+    },
+  });
+
+  assert.equal(oauthCalls, 1);
+  assert.equal(result.source, "oauth");
+  assert.equal(result.windows[0].usedPercent, 55);
+});
+
+test("an explicit refresh respects a persisted OAuth failure backoff", async (t) => {
+  const directory = await temporaryDirectory(t);
+  const account = { id: "manual-backoff", label: "Claude", provider: "claude", configDir: directory };
+  const state = emptyProviderState();
+  state.claudeOAuth[claudeProfileKey(account)] = {
+    lastAttemptAt: NOW - 60_000,
+    nextAllowedAt: NOW + 14 * 60_000,
+    lastError: "HTTP 429",
+  };
+  let oauthCalls = 0;
+  const result = await readClaudeAccountUsage(account, 2, {
+    state,
+    oauthMinIntervalSeconds: 900,
+    statusLineMaxAgeSeconds: 180,
+    now: NOW,
+    forceOAuth: true,
+    readDesktop: async () => usage(account, new Date(NOW - 30_000).toISOString(), {
+      source: "desktop",
+      stale: false,
+    }),
+    readOAuth: async () => { oauthCalls++; throw new Error("must not bypass 429 backoff"); },
+  });
+
+  assert.equal(oauthCalls, 0);
+  assert.equal(result.source, "desktop");
+  assert.equal(result.stale, false);
+  assert.match(result.error, /HTTP 429/);
+});
+
 async function temporaryDirectory(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "ai-limits-claude-"));
   t.after(() => rm(directory, { recursive: true, force: true }));

@@ -17,6 +17,7 @@ const CACHE_PATH = GLib.build_filenamev([
     CACHE_DIRECTORY,
     "usage.json",
 ]);
+const FORCE_OAUTH_REQUEST_PATH = `${CACHE_PATH}.force-oauth`;
 const CACHE_DEBOUNCE_MS = 150;
 const MONITOR_RETRY_SECONDS = 5;
 const REFRESH_TIMEOUT_SECONDS = 60;
@@ -29,6 +30,22 @@ function readSnapshotText() {
         return ByteArray.toString(contents);
     } catch (error) {
         return null;
+    }
+}
+
+function writeForcedOAuthRefreshRequest() {
+    GLib.mkdir_with_parents(CACHE_DIRECTORY, 0o700);
+    GLib.file_set_contents(FORCE_OAUTH_REQUEST_PATH, "1");
+    const [ok, contents] = GLib.file_get_contents(FORCE_OAUTH_REQUEST_PATH);
+    if (!ok || ByteArray.toString(contents).trim() !== "1")
+        throw new Error("Não foi possível solicitar uma nova leitura OAuth.");
+}
+
+function clearForcedOAuthRefreshRequest() {
+    try {
+        GLib.unlink(FORCE_OAUTH_REQUEST_PATH);
+    } catch (error) {
+        // The service may already have consumed the one-shot request.
     }
 }
 
@@ -492,7 +509,21 @@ class AiLimitsApplet extends Applet.Applet {
                 ));
                 row.add(labels);
                 row.add(makeProgressBar(percent));
-                row.add(makeLabel(formatResetLine(window.resetsAt), "color: #dce1e7; font-size: 0.82em;"));
+                const resetSource = window.resetSource === "oauth"
+                    ? "OAuth"
+                    : window.resetSource === "statusLine" ? "status line local" : null;
+                const resetAge = window.resetCheckedAt
+                    ? " lido " + this.snapshotModel.formatSnapshotAge(
+                        Math.max(0, Date.now() - Date.parse(window.resetCheckedAt)),
+                    )
+                    : "";
+                const resetSourceNote = resetSource && window.resetSource !== account.source
+                    ? ` · reset ${resetSource}${resetAge}`
+                    : "";
+                row.add(makeLabel(
+                    formatResetLine(window.resetsAt) + resetSourceNote,
+                    "color: #dce1e7; font-size: 0.82em;",
+                ));
                 card.add(row);
             });
         }
@@ -572,6 +603,7 @@ class AiLimitsApplet extends Applet.Applet {
 
     failPendingRefresh(error, expectedRefresh) {
         if (!expectedRefresh || this.pendingRefresh !== expectedRefresh) return;
+        clearForcedOAuthRefreshRequest();
         this.clearPendingRefresh(expectedRefresh);
         Main.notify(
             "Não foi possível atualizar os limites.",
@@ -592,6 +624,7 @@ class AiLimitsApplet extends Applet.Applet {
             () => {
                 this.refreshTimeoutId = 0;
                 if (!this.removed && this.pendingRefresh === pendingRefresh) {
+                    clearForcedOAuthRefreshRequest();
                     this.clearPendingRefresh(pendingRefresh);
                     Main.notify(
                         "A atualização está demorando.",
@@ -603,6 +636,7 @@ class AiLimitsApplet extends Applet.Applet {
         );
 
         try {
+            writeForcedOAuthRefreshRequest();
             const process = Gio.Subprocess.new(
                 ["systemctl", "--user", "restart", "ai-limits-widget.service"],
                 Gio.SubprocessFlags.NONE,

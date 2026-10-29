@@ -76,6 +76,7 @@ function makeHarness() {
   const notifications = [];
   const monitor = new FileMonitor();
   const cacheDirectory = "/tmp/opencode-ai-limits-test/ai-limits-widget";
+  let forcedOAuthRequest = null;
   let snapshot = {
     version: 1,
     createdAt: "2026-09-30T12:00:00.000Z",
@@ -115,6 +116,8 @@ function makeHarness() {
     SOURCE_CONTINUE: true,
     get_user_cache_dir: () => "/tmp/opencode-ai-limits-test",
     build_filenamev: (parts) => path.posix.join(...parts),
+    mkdir_with_parents: () => true,
+    file_set_contents: (_filePath, contents) => { forcedOAuthRequest = contents; return true; },
     timeout_add: (_priority, milliseconds, callback) => schedule(milliseconds, callback),
     timeout_add_seconds: (_priority, seconds, callback) => schedule(seconds, callback),
     source_remove: (id) => {
@@ -122,7 +125,14 @@ function makeHarness() {
       sources.delete(id);
       return true;
     },
-    file_get_contents: () => [true, new TextEncoder().encode(JSON.stringify(snapshot))],
+    file_get_contents: (filePath) => filePath.endsWith(".force-oauth")
+      ? [forcedOAuthRequest !== null, forcedOAuthRequest === null ? null : new TextEncoder().encode(forcedOAuthRequest)]
+      : [true, new TextEncoder().encode(JSON.stringify(snapshot))],
+    unlink: (filePath) => {
+      assert.ok(filePath.endsWith(".force-oauth"));
+      forcedOAuthRequest = null;
+      return 0;
+    },
   };
   const Gio = {
     FileMonitorFlags: { WATCH_MOVES: 1 },
@@ -209,6 +219,7 @@ function makeHarness() {
     cacheDirectory,
     monitor,
     notifications,
+    get forcedOAuthRequest() { return forcedOAuthRequest; },
     removedSources,
     setSnapshot(value) {
       snapshot = value;
@@ -254,6 +265,7 @@ test("manualRefreshActivatesAsyncServiceRestartAndWaitsForNewSnapshot", () => {
   refreshItem.activate();
 
   assert.equal(harness.subprocesses.length, 1);
+  assert.equal(harness.forcedOAuthRequest, "1");
   assert.deepEqual(harness.subprocesses[0].command, [
     "systemctl", "--user", "restart", "ai-limits-widget.service",
   ]);

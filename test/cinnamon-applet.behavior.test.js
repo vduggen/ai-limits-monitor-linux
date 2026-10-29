@@ -42,6 +42,7 @@ function makeHarness(initialSnapshot) {
   };
   const cacheDirectory = "/tmp/opencode-cinnamon-test/ai-limits-widget";
   let snapshot = initialSnapshot;
+  let forcedOAuthRequest = null;
   let panelIconSize = 24;
 
   class Widget {
@@ -172,6 +173,8 @@ function makeHarness(initialSnapshot) {
     SOURCE_CONTINUE: true,
     get_user_cache_dir: () => "/tmp/opencode-cinnamon-test",
     build_filenamev: (parts) => path.posix.join(...parts),
+    mkdir_with_parents: () => true,
+    file_set_contents: (_filePath, contents) => { forcedOAuthRequest = contents; return true; },
     timeout_add: (_priority, milliseconds, callback) => schedule(milliseconds, callback),
     timeout_add_seconds: (_priority, seconds, callback) => schedule(seconds, callback),
     source_remove: (id) => {
@@ -179,9 +182,16 @@ function makeHarness(initialSnapshot) {
       sources.delete(id);
       return true;
     },
-    file_get_contents: () => snapshot === null
-      ? [false, null]
-      : [true, new TextEncoder().encode(JSON.stringify(snapshot))],
+    file_get_contents: (filePath) => filePath.endsWith(".force-oauth")
+      ? [forcedOAuthRequest !== null, forcedOAuthRequest === null ? null : new TextEncoder().encode(forcedOAuthRequest)]
+      : snapshot === null
+        ? [false, null]
+        : [true, new TextEncoder().encode(JSON.stringify(snapshot))],
+    unlink: (filePath) => {
+      assert.ok(filePath.endsWith(".force-oauth"));
+      forcedOAuthRequest = null;
+      return 0;
+    },
   };
   const Gio = {
     FileMonitorFlags: { WATCH_MOVES: 1 },
@@ -335,6 +345,7 @@ function makeHarness(initialSnapshot) {
     setAppletSetting(applet, key, value) { applet.settings.set(key, value); },
     setPanelIconSize(value) { panelIconSize = value; },
     setSnapshot(value) { snapshot = value; },
+    get forcedOAuthRequest() { return forcedOAuthRequest; },
     snapshotModel: snapshotContext.AiLimitsSnapshot,
   };
 }
@@ -580,6 +591,20 @@ test("Cinnamon menu shows the source and age of current account readings", () =>
   applet.on_applet_removed_from_panel();
 });
 
+test("Cinnamon menu distinguishes a carried reset from the Desktop percentage source", () => {
+  const snapshot = makeSnapshot();
+  snapshot.accounts[0].source = "desktop";
+  snapshot.accounts[0].windows[0].resetSource = "oauth";
+  snapshot.accounts[0].windows[0].resetCheckedAt = new Date(Date.now() - 5 * 60_000).toISOString();
+  const applet = createApplet(makeHarness(snapshot));
+  const resetText = collectMenuTexts(applet.menu.items)
+    .find((text) => text.includes("reset OAuth lido há 5min"));
+
+  assert.ok(resetText);
+
+  applet.on_applet_removed_from_panel();
+});
+
 test("Cinnamon menu keeps stale quota values visible beside the source warning", () => {
   const snapshot = makeSnapshot();
   snapshot.accounts[0].checkedAt = new Date(Date.now() - 10 * 60_000).toISOString();
@@ -607,6 +632,7 @@ test("Cinnamon manual refresh is async, waits for a new snapshot, and cleans up 
   refreshButton.click();
   refreshButton.click();
   assert.equal(harness.subprocesses.length, 1);
+  assert.equal(harness.forcedOAuthRequest, "1");
   assert.deepEqual(harness.subprocesses[0].command, [
     "systemctl", "--user", "restart", "ai-limits-widget.service",
   ]);

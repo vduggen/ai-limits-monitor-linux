@@ -29,8 +29,10 @@ function window({
   usedPercent,
   remainingPercent = 100 - usedPercent,
   resetsAt,
+  resetSource,
+  resetCheckedAt,
 }) {
-  return { id, kind, label, usedPercent, remainingPercent, resetsAt };
+  return { id, kind, label, usedPercent, remainingPercent, resetsAt, resetSource, resetCheckedAt };
 }
 
 test("missingAndInvalidSnapshotsReturnExplicitStates", () => {
@@ -182,6 +184,9 @@ test("menuViewExplainsCacheStatesAndFiltersUnsupportedAccounts", () => {
   const invalid = buildMenuView(buildSnapshotView("{", NOW), NOW);
   assert.equal(invalid.statusText, "Cache inválido.");
 
+  const current = buildMenuView(buildSnapshotView(snapshotText([]), NOW), NOW);
+  assert.equal(current.statusText, "Cache atualizado há 0s.");
+
   const view = buildSnapshotView(
     snapshotText([
       {
@@ -200,7 +205,7 @@ test("menuViewExplainsCacheStatesAndFiltersUnsupportedAccounts", () => {
   );
   const menu = buildMenuView(view, NOW);
 
-  assert.match(menu.statusText, /Dados desatualizados/);
+  assert.match(menu.statusText, /Cache desatualizado/);
   assert.match(menu.statusText, /há 4min/);
   assert.deepEqual(menu.groups.map(({ provider }) => provider), ["claude", "codex"]);
   assert.deepEqual(menu.groups[0].accounts[0], {
@@ -226,6 +231,29 @@ test("menuViewExplainsCacheStatesAndFiltersUnsupportedAccounts", () => {
   ), NOW);
   assert.equal(unsupportedOnly.groups.length, 0);
   assert.equal(unsupportedOnly.emptyText, "Nenhuma conta reportou limites utilizáveis.");
+});
+
+test("desktop percentages can show the age and source of a carried exact reset", () => {
+  const view = buildSnapshotView(snapshotText([{
+    ...account({
+      id: "claude-desktop",
+      windows: [window({
+        id: "session",
+        kind: "session",
+        label: "Sessão",
+        usedPercent: 42,
+        resetsAt: "2026-09-30T16:00:00.000Z",
+        resetSource: "oauth",
+        resetCheckedAt: new Date(NOW - 5 * 60_000).toISOString(),
+      })],
+    }),
+    checkedAt: new Date(NOW - 60_000).toISOString(),
+    source: "desktop",
+  }]), NOW);
+
+  const windowView = buildMenuView(view, NOW).groups[0].accounts[0].windows[0];
+  assert.match(windowView.text, /Sessão: 58% restante/);
+  assert.match(windowView.text, /reset OAuth lido há 5min/);
 });
 
 test("menuViewExplainsAccountsWithoutReportedLimits", () => {

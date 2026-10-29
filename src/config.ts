@@ -39,6 +39,10 @@ export function providerStatePath(): string {
   return `${cachePath()}.state.json`;
 }
 
+export function forcedOAuthRefreshPath(): string {
+  return `${cachePath()}.force-oauth`;
+}
+
 export async function loadConfig(): Promise<AppConfig> {
   const raw = await readFile(configPath(), "utf8");
   const parsed: unknown = JSON.parse(raw);

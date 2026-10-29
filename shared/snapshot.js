@@ -85,6 +85,11 @@ var AiLimitsSnapshot = (function () {
         };
         if (typeof candidate.resetsAt === "string")
             normalized.resetsAt = candidate.resetsAt;
+        if (candidate.resetSource === "statusLine" || candidate.resetSource === "oauth")
+            normalized.resetSource = candidate.resetSource;
+        if (typeof candidate.resetCheckedAt === "string"
+            && Number.isFinite(Date.parse(candidate.resetCheckedAt)))
+            normalized.resetCheckedAt = candidate.resetCheckedAt;
         if (Number.isFinite(candidate.windowDurationMins) && candidate.windowDurationMins > 0)
             normalized.windowDurationMins = candidate.windowDurationMins;
         return normalized;
@@ -291,10 +296,10 @@ var AiLimitsSnapshot = (function () {
         var statusText = snapshotView.timestampInFuture
             ? "Timestamp do cache no futuro; dados não confirmados. Confira o relógio do sistema."
             : snapshotView.state === "stale"
-                ? "Dados desatualizados — atualizado " + age + "."
+                ? "Cache desatualizado — última atualização " + age + "."
                 : hasErrors
-                    ? "Consulta " + age + ". Há contas sem dados atuais; veja os avisos abaixo."
-                    : "Atualizado " + age + ".";
+                    ? "Cache atualizado " + age + ". Há contas sem dados atuais; veja os avisos abaixo."
+                    : "Cache atualizado " + age + ".";
         var providers = [["claude", "Claude"], ["codex", "Codex"]];
         var usableAccounts = snapshotView.accounts.filter(function (account) {
             return account.status !== "unsupported";
@@ -323,9 +328,18 @@ var AiLimitsSnapshot = (function () {
                     ? account.windows.map(function (window) {
                         var percent = mode === "used" ? window.usedPercent : window.remainingPercent;
                         var modeLabel = mode === "used" ? "usado" : "restante";
+                        var resetText = formatReset(window.resetsAt, nowMs);
+                        if (window.resetSource && window.resetSource !== account.source) {
+                            var resetSourceLabel = window.resetSource === "oauth" ? "OAuth" : "status line local";
+                            var resetAge = window.resetCheckedAt
+                                ? formatSnapshotAge(Math.max(0, nowMs - Date.parse(window.resetCheckedAt)))
+                                : null;
+                            resetText += " · reset " + resetSourceLabel
+                                + (resetAge ? " lido " + resetAge : "");
+                        }
                         return {
                             text: window.label + ": " + percent + "% " + modeLabel + " · "
-                                + formatReset(window.resetsAt, nowMs)
+                                + resetText
                                 + (account.stale ? " · antiga" : ""),
                         };
                     })

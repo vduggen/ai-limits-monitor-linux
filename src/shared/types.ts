@@ -32,6 +32,8 @@ export interface UsageWindow {
   readonly usedPercent: number;
   readonly remainingPercent: number;
   readonly resetsAt?: string;
+  readonly resetSource?: "statusLine" | "oauth";
+  readonly resetCheckedAt?: string;
   readonly windowDurationMins?: number;
 }
 

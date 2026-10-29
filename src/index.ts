@@ -1,6 +1,7 @@
-import { configPath, loadConfig, cachePath, providerStatePath } from "./config.js";
+import { configPath, loadConfig, cachePath, forcedOAuthRefreshPath, providerStatePath } from "./config.js";
 import { readSnapshot, writeSnapshot } from "./cache.js";
 import { readProviderState, writeProviderState } from "./provider-state.js";
+import { consumeForcedOAuthRefreshRequest } from "./refresh-request.js";
 import { readClaudeAccountUsage } from "./providers/claude-fallback.js";
 import { readCodexUsage } from "./providers/codex.js";
 import { formatReset } from "./shared/usage.js";
@@ -63,7 +64,7 @@ function printUsage(usage: AccountUsage): void {
   }
 }
 
-async function check(options: CliOptions): Promise<UsageSnapshot> {
+async function check(options: CliOptions, forceOAuth = false): Promise<UsageSnapshot> {
   const config = await loadConfig();
   const accounts = config.accounts.filter(
     (account) => account.enabled !== false && (!options.provider || account.provider === options.provider),
@@ -80,6 +81,7 @@ async function check(options: CliOptions): Promise<UsageSnapshot> {
       oauthMinIntervalSeconds: config.claudeOAuthMinIntervalSeconds,
       statusLineMaxAgeSeconds: config.claudeStatusLineMaxAgeSeconds,
       desktopMaxAgeSeconds: config.claudeDesktopMaxAgeSeconds,
+      forceOAuth,
     })
     : readCodexUsage(account, config.probeTimeoutSeconds)));
   await writeProviderState(providerStatePath(), providerState);
@@ -104,7 +106,10 @@ async function main(): Promise<void> {
   const config = await loadConfig();
   do {
     try {
-      const snapshot = await check(options);
+      const forceOAuth = command === "watch"
+        ? await consumeForcedOAuthRefreshRequest(forcedOAuthRefreshPath())
+        : false;
+      const snapshot = await check(options, forceOAuth);
       if (options.json) {
         console.log(JSON.stringify(snapshot, null, 2));
       } else {
