@@ -100,10 +100,24 @@ test("manualInstallCommandsIncludeAccountAndCacheHelpers", async (t) => {
   assert.ok(gnomeEditorCopies.every((command) => command.includes("cinnamon/account_config.py")));
   const target = await mkdtemp('/tmp/opencode/install-contract-');
   t.after(() => rm(target, {recursive: true, force: true}));
-  const copied = spawnSync('/bin/sh', ['-c', gnomeCopies[0].replaceAll('\\', '')], {env: {...process.env, TARGET: target}, encoding: 'utf8'});
+  const copyCommands = [gnomeCopies[0], gnomeSnapshotCopies[0]]
+    .map((command) => command.replaceAll('\\', ''))
+    .join('\n');
+  const copied = spawnSync('/bin/sh', ['-c', copyCommands], {
+    env: {...process.env, TARGET: target},
+    encoding: 'utf8',
+  });
   assert.equal(copied.status, 0, copied.stderr);
-  for (const file of ['extension.js', 'snapshot.js', 'cache-events.js', 'dashboard.js', 'refresh-request.js', 'stylesheet.css'])
-    assert.equal(await readFile(`${target}/${file}`, 'utf8'), await read(`gnome/${file}`));
+  const installedFiles = [
+    ['extension.js', 'gnome/extension.js'],
+    ['snapshot.js', 'shared/snapshot.js'],
+    ['cache-events.js', 'gnome/cache-events.js'],
+    ['dashboard.js', 'gnome/dashboard.js'],
+    ['refresh-request.js', 'gnome/refresh-request.js'],
+    ['stylesheet.css', 'gnome/stylesheet.css'],
+  ];
+  for (const [installedFile, sourceFile] of installedFiles)
+    assert.equal(await readFile(`${target}/${installedFile}`, 'utf8'), await read(sourceFile));
 });
 
 test("manualInstallCommandsCopyProjectUpdaterWithConfigure", async () => {
