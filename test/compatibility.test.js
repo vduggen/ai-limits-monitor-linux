@@ -44,6 +44,16 @@ test("release versions stay separate and use each component's manifest format", 
   assert.ok(gnomeMetadata.version > 0);
 });
 
+test("dependency build approval is limited to the locked esbuild version", async () => {
+  const workspaceConfiguration = await read("pnpm-workspace.yaml");
+
+  assert.match(
+    workspaceConfiguration,
+    /^allowBuilds:\n  'esbuild@0\.28\.2': true$/m,
+  );
+  assert.doesNotMatch(workspaceConfiguration, /dangerouslyAllowAllBuilds:\s*true/);
+});
+
 test("visibleBrandingUsesTheGenericLinuxProductName", async () => {
   const packageJson = JSON.parse(await read("package.json"));
   const gnomeMetadata = JSON.parse(await read("gnome/metadata.json"));

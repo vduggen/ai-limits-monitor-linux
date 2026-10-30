@@ -606,7 +606,13 @@ class ProjectUpdateApplyTests(TemporaryProjectGitRepository):
         self.assertTrue(result.service_restarted)
         self.assertEqual(
             events,
-            ["merge", "install --frozen-lockfile", "build", "restart"],
+            [
+                "merge",
+                "install --frozen-lockfile",
+                "rebuild --pending",
+                "build",
+                "restart",
+            ],
         )
         self.assertEqual(
             self.git(["rev-parse", "HEAD"], cwd=self.project).stdout.strip(),

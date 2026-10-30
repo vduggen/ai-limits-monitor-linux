@@ -7,6 +7,8 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
 
 ### Serviço e interfaces compartilhadas
 
+- Permite somente o script de build da versão bloqueada `esbuild@0.28.2` durante
+  a instalação; os demais scripts de dependências continuam sujeitos à aprovação.
 - Documenta que cada atualização entregue incrementa a versão dos componentes
   afetados, independentemente de uma release formal.
 - Prioriza cotas recentes do status line Claude e limita o fallback OAuth por
@@ -25,6 +27,8 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
   partir de um clone limpo e atualizado, após confirmação e sem build/restart.
 - Localiza o pnpm em `PNPM_HOME` ou no diretório padrão do usuário quando ele não
   está no `PATH` herdado pela sessão gráfica.
+- Executa `pnpm rebuild --pending` após a instalação para recuperar builds que
+  ficaram pendentes em uma tentativa anterior.
 
 ### Cinnamon
 
@@ -34,6 +38,8 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
   partir de um clone limpo e atualizado, após confirmação e sem build/restart.
 - Localiza o pnpm em `PNPM_HOME` ou no diretório padrão do usuário quando ele não
   está no `PATH` herdado pela sessão gráfica.
+- Executa `pnpm rebuild --pending` após a instalação para recuperar builds que
+  ficaram pendentes em uma tentativa anterior.
 - Identifica leituras provenientes do Claude Desktop no cartão da conta.
 - O popup passa a organizar cada conta em um cartão com plano, janelas de uso,
   barras de percentual e horários de reset, mantendo estados de erro e ações atuais.

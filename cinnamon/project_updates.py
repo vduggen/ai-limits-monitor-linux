@@ -560,6 +560,13 @@ class ProjectUpdater:
         )
         self._run_pnpm(
             pnpm_executable,
+            ["rebuild", "--pending"],
+            stage="install",
+            timeout=600,
+            checkout_updated=True,
+        )
+        self._run_pnpm(
+            pnpm_executable,
             ["build"],
             stage="build",
             timeout=180,
