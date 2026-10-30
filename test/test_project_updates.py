@@ -186,6 +186,8 @@ class TemporaryProjectGitRepository(unittest.TestCase):
         command_runner=subprocess.run,
         executable_lookup=None,
         service_restart=None,
+        home=None,
+        environment=None,
     ):
         updater_type = self.api("ProjectUpdater")
         options = {
@@ -196,6 +198,10 @@ class TemporaryProjectGitRepository(unittest.TestCase):
             options["executable_lookup"] = executable_lookup
         if service_restart is not None:
             options["service_restart"] = service_restart
+        if home is not None:
+            options["home"] = home
+        if environment is not None:
+            options["environment"] = environment
         return updater_type(
             self.accounts_path,
             self.root / "not-installed" / "configure.py"
@@ -553,7 +559,7 @@ class ProjectUpdateApplyTests(TemporaryProjectGitRepository):
 
     def command_runner(self, events, *, failed_build=False, target=None):
         def run(command, **options):
-            if command[0] == "pnpm":
+            if Path(command[0]).name == "pnpm":
                 operation = " ".join(command[1:])
                 events.append(operation)
                 if operation == "build" and target is not None:
@@ -572,6 +578,10 @@ class ProjectUpdateApplyTests(TemporaryProjectGitRepository):
         editor_path = self.installed_editor("cinnamon")
         target = editor_path.parent
         events = []
+        pnpm_executable = self.root / ".local" / "share" / "pnpm" / "bin" / "pnpm"
+        pnpm_executable.parent.mkdir(parents=True)
+        pnpm_executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        pnpm_executable.chmod(0o755)
 
         def restart_service():
             self.assertEqual(
@@ -583,8 +593,10 @@ class ProjectUpdateApplyTests(TemporaryProjectGitRepository):
         updater = self.updater(
             editor_path=editor_path,
             command_runner=self.command_runner(events, target=target),
-            executable_lookup=self.available_executables,
+            executable_lookup=lambda name: "/usr/bin/git" if name == "git" else None,
             service_restart=restart_service,
+            home=self.root,
+            environment={},
         )
 
         result = self.apply(updater)
@@ -683,6 +695,8 @@ class ProjectUpdateApplyTests(TemporaryProjectGitRepository):
             command_runner=self.command_runner(events),
             executable_lookup=lambda name: "/usr/bin/git" if name == "git" else None,
             service_restart=lambda: events.append("restart"),
+            home=self.root / "isolated-home",
+            environment={},
         )
 
         with self.assertRaisesRegex(RuntimeError, "pnpm"):

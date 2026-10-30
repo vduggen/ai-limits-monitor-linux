@@ -23,6 +23,8 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
   fast-forward seguro, compila e sincroniza somente a extensão GNOME que o abriu.
 - Adiciona uma ação independente para sincronizar a extensão GNOME instalada a
   partir de um clone limpo e atualizado, após confirmação e sem build/restart.
+- Localiza o pnpm em `PNPM_HOME` ou no diretório padrão do usuário quando ele não
+  está no `PATH` herdado pela sessão gráfica.
 
 ### Cinnamon
 
@@ -30,6 +32,8 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
   fast-forward seguro, compila e sincroniza somente o applet Cinnamon que o abriu.
 - Adiciona uma ação independente para sincronizar o applet Cinnamon instalado a
   partir de um clone limpo e atualizado, após confirmação e sem build/restart.
+- Localiza o pnpm em `PNPM_HOME` ou no diretório padrão do usuário quando ele não
+  está no `PATH` herdado pela sessão gráfica.
 - Identifica leituras provenientes do Claude Desktop no cartão da conta.
 - O popup passa a organizar cada conta em um cartão com plano, janelas de uso,
   barras de percentual e horários de reset, mantendo estados de erro e ações atuais.

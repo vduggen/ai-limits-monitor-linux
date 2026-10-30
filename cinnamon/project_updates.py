@@ -329,6 +329,39 @@ def _copy_files_atomically(files: list[tuple[Path, Path]]) -> None:
                 pass
 
 
+def resolve_pnpm_executable(
+    executable_lookup: Callable[[str], str | None] = shutil.which,
+    *,
+    home: Path | None = None,
+    environment: Mapping[str, str] | None = None,
+) -> str | None:
+    """Find pnpm on PATH or in its conventional per-user installation directory."""
+    executable = executable_lookup("pnpm")
+    if executable is not None:
+        return executable
+
+    user_home = Path.home() if home is None else Path(home)
+    process_environment = os.environ if environment is None else environment
+    installation_roots = []
+    configured_home = process_environment.get("PNPM_HOME", "").strip()
+    if configured_home:
+        installation_roots.append(Path(configured_home).expanduser())
+    installation_roots.append(user_home / ".local" / "share" / "pnpm")
+
+    candidates = (
+        candidate
+        for installation_root in installation_roots
+        for candidate in (
+            installation_root / "pnpm",
+            installation_root / "bin" / "pnpm",
+        )
+    )
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
 class ProjectUpdater:
     """Resolve the configured checkout and inspect its Git upstream."""
 
@@ -341,6 +374,8 @@ class ProjectUpdater:
         command_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
         executable_lookup: Callable[[str], str | None] = shutil.which,
         service_restart: Callable[[], None] = restart_user_service,
+        home: Path | None = None,
+        environment: Mapping[str, str] | None = None,
     ):
         self.accounts_path = Path(accounts_path).expanduser()
         self.editor_path = Path(editor_path).expanduser()
@@ -350,6 +385,8 @@ class ProjectUpdater:
         self.command_runner = command_runner
         self.executable_lookup = executable_lookup
         self.service_restart = service_restart
+        self.home = Path.home() if home is None else Path(home)
+        self.environment = os.environ if environment is None else environment
         self.project_path_error: str | None = None
         self._project_path: Path | None = None
 
@@ -479,7 +516,7 @@ class ProjectUpdater:
     def apply_updates(self, confirmed_update: UpdateCheck) -> UpdateApplyResult:
         """Fast-forward, build, sync the active frontend, and restart the service."""
         self._require_executable("git")
-        self._require_executable("pnpm")
+        pnpm_executable = self._require_executable("pnpm")
         if not confirmed_update.can_apply:
             raise ProjectUpdateError(
                 "preflight",
@@ -515,13 +552,18 @@ class ProjectUpdater:
             raise ProjectUpdateError("merge", str(error), checkout_updated) from error
 
         self._run_pnpm(
+            pnpm_executable,
             ["install", "--frozen-lockfile"],
             stage="install",
             timeout=600,
             checkout_updated=True,
         )
         self._run_pnpm(
-            ["build"], stage="build", timeout=180, checkout_updated=True
+            pnpm_executable,
+            ["build"],
+            stage="build",
+            timeout=180,
+            checkout_updated=True,
         )
 
         try:
@@ -544,11 +586,21 @@ class ProjectUpdater:
             service_restarted=True,
         )
 
-    def _require_executable(self, name: str) -> None:
-        if self.executable_lookup(name) is None:
+    def _require_executable(self, name: str) -> str:
+        executable = (
+            resolve_pnpm_executable(
+                self.executable_lookup,
+                home=self.home,
+                environment=self.environment,
+            )
+            if name == "pnpm"
+            else self.executable_lookup(name)
+        )
+        if executable is None:
             raise ProjectUpdateError(
                 "preflight", f"O executável necessário não foi encontrado: {name}", False
             )
+        return executable
 
     @staticmethod
     def _blocked_update_reason(update_check: UpdateCheck) -> str:
@@ -568,6 +620,7 @@ class ProjectUpdater:
 
     def _run_pnpm(
         self,
+        executable: str,
         arguments: list[str],
         *,
         stage: str,
@@ -578,7 +631,7 @@ class ProjectUpdater:
             raise ProjectUpdateError(stage, "Nenhum clone válido foi selecionado.", checkout_updated)
         try:
             result = self.command_runner(
-                ["pnpm", *arguments],
+                [executable, *arguments],
                 cwd=self._project_path,
                 check=False,
                 stdout=subprocess.PIPE,
