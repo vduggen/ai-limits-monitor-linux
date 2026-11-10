@@ -212,22 +212,33 @@ function formatWindowDuration(window) {
     return `${minutes} min`;
 }
 
-function formatResetLine(resetsAt) {
-    if (typeof resetsAt !== "string" || resetsAt.length === 0)
-        return "Reset não informado";
+function formatCompactReset(resetsAt) {
     const timestamp = Date.parse(resetsAt);
-    if (!Number.isFinite(timestamp))
-        return "Reset não informado";
-
-    const now = Date.now();
-    const date = new Date(timestamp);
-    const dateText = date.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
-    const timeText = date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-    return `Redefine em ${formatDuration((timestamp - now) / 60000)} · ${dateText} ${timeText}`;
+    if (!Number.isFinite(timestamp)) return "Reset não informado";
+    if (timestamp <= Date.now()) return "Reset vencido · aguardando confirmação";
+    return `Redefine em ${formatDuration((timestamp - Date.now()) / 60000)}`;
 }
 
-function makeProgressBar(percent) {
+function makeQuotaTooltip(actor, text) {
+    const tooltip = new Tooltips.Tooltip(actor, text);
+    // Cinnamon's default tooltip theme can be centered and heavily rounded.
+    // Use a compact, opaque panel so multi-line quota details remain readable.
+    tooltip._tooltip.set_style([
+        "max-width: 340px; padding: 10px 12px;",
+        "border-radius: 8px; text-align: left;",
+        "background-color: #25282c; color: #eef0f2;",
+        "border: 1px solid rgba(255, 255, 255, 0.16);",
+        "font-size: 0.9em;",
+    ].join(" "));
+    tooltip._tooltip.clutter_text.line_wrap = true;
+    return tooltip;
+}
+
+function makeProgressBar(percent, color) {
     const fraction = Math.max(0, Math.min(100, percent)) / 100;
+    const red = parseInt(color.slice(1, 3), 16) / 255;
+    const green = parseInt(color.slice(3, 5), 16) / 255;
+    const blue = parseInt(color.slice(5, 7), 16) / 255;
     const area = new St.DrawingArea({ style_class: "ai-limits-progress", x_expand: true });
     area.set_style("height: 6px; border-radius: 3px; background-color: rgba(128, 128, 128, 0.24);");
     area.fraction = fraction;
@@ -236,7 +247,7 @@ function makeProgressBar(percent) {
         const [width, height] = drawingArea.get_surface_size();
         const fillWidth = width * fraction;
         if (fillWidth > 0 && height > 0) {
-            context.setSourceRGBA(0.30, 0.82, 0.58, 1);
+            context.setSourceRGBA(red, green, blue, 1);
             if (fillWidth <= height) {
                 context.arc(fillWidth / 2, height / 2, fillWidth / 2, 0, 2 * Math.PI);
             } else {
@@ -271,6 +282,7 @@ class AiLimitsApplet extends Applet.Applet {
         this.restartingService = false;
         this.refreshButton = null;
         this.headerTooltips = [];
+        this.detailTooltips = [];
         this.snapshotView = this.snapshotModel.buildSnapshotView(null);
 
         // Cinnamon's applet settings window reads the per-instance JSON file
@@ -488,6 +500,8 @@ class AiLimitsApplet extends Applet.Applet {
     clearHeaderTooltips() {
         this.headerTooltips.forEach((tooltip) => tooltip.destroy());
         this.headerTooltips = [];
+        this.detailTooltips.forEach((tooltip) => tooltip.destroy());
+        this.detailTooltips = [];
     }
 
     setRefreshButtonSensitive(sensitive) {
@@ -571,22 +585,20 @@ class AiLimitsApplet extends Applet.Applet {
                 const percent = displayMode === "used" ? window.usedPercent : window.remainingPercent;
                 const duration = formatWindowDuration(window);
                 const windowTitle = duration ? `${window.label} (${duration})` : window.label;
-                const row = new St.BoxLayout({ vertical: true, x_expand: true });
-                row.set_style("spacing: 5px; padding-top: 3px;");
+                const row = new St.BoxLayout({ vertical: true, x_expand: true, reactive: true, can_focus: true });
+                row.set_style("spacing: 6px; padding-top: 6px;");
 
                 const labels = new St.BoxLayout({ vertical: false, x_expand: true });
                 labels.set_style("spacing: 8px;");
                 labels.add(makeLabel(windowTitle, "color: #f1f3f5; font-size: 0.95em;", { x_expand: true }));
                 labels.add(makeLabel(
                     `${percent}% ${displayMode === "used" ? "usado" : "restante"}${account.stale ? " · antigo" : ""}`,
-                    "font-weight: 700; color: #57d69b;",
+                    `font-weight: 700; color: ${providerColor};`,
                 ));
                 row.add(labels);
-                row.add(makeProgressBar(percent));
-                if (window.observedAt || window.sourceEventAt) {
-                    const observation = this.snapshotModel.buildWindowView(window, displayMode);
-                    row.add(makeLabel(`${observation.sourceText} · ${observation.ageText} · ${observation.state === "observed" ? "observado" : observation.state === "expired" ? "reset vencido" : "último conhecido"}`, "color: #dce1e7; font-size: 0.82em;"));
-                }
+                row.add(makeProgressBar(percent, providerColor));
+                const observation = this.snapshotModel.buildWindowView(window, displayMode);
+                const hasObservation = Boolean(window.observedAt || window.sourceEventAt);
                 const resetSource = window.resetSource === "oauth"
                     ? "OAuth"
                     : window.resetSource === "statusLine" ? "status line local" : null;
@@ -598,10 +610,35 @@ class AiLimitsApplet extends Applet.Applet {
                 const resetSourceNote = resetSource && window.resetSource !== account.source
                     ? ` · reset ${resetSource}${resetAge}`
                     : "";
-                row.add(makeLabel(
-                    formatResetLine(window.resetsAt) + resetSourceNote,
-                    "color: #dce1e7; font-size: 0.82em;",
-                ));
+                const resetText = formatCompactReset(window.resetsAt);
+                const oldReading = account.stale || (hasObservation && observation.state === "last-known");
+                const expired = observation.state === "expired";
+                const ageText = hasObservation && !expired
+                    ? ` · ${oldReading ? "último dado" : "leitura"} ${observation.ageText.replace(/^Observado /, "")}`
+                    : "";
+                row.add(makeLabel(resetText + ageText,
+                    `color: ${oldReading || expired ? "#e5b566" : "#b8c0c8"}; font-size: 0.82em;`));
+                const sourceNames = {
+                    "claude-statusline": "Claude · sessão local",
+                    "claude-desktop": "Claude Desktop",
+                    "claude-sdk": "Claude · consulta oficial",
+                    "codex-rollout": "Codex · sessão local",
+                    "codex-rpc": "Codex · consulta oficial",
+                };
+                const resetTimestamp = Date.parse(window.resetsAt);
+                const resetDate = Number.isFinite(resetTimestamp)
+                    ? new Date(resetTimestamp).toLocaleString("pt-BR", {
+                        day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+                    }) : "não informado";
+                const details = [
+                    `Fonte: ${sourceNames[window.source] || "não informada"}`,
+                    `Leitura: ${observation.ageText.replace(/^Observado /, "")}`,
+                    `Reset: ${resetDate}${resetSourceNote}`,
+                ];
+                if (expired) details.push("Reset vencido · aguardando confirmação");
+                else if (oldReading) details.push("Dado antigo · pode não refletir o uso atual");
+                row.accessible_name = observation.accessibleText;
+                this.detailTooltips.push(makeQuotaTooltip(row, details.join("\n")));
                 card.add(row);
             });
         }

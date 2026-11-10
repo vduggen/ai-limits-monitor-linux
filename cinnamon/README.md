@@ -21,6 +21,14 @@ pnpm watch
 
 Para instalar manualmente no Cinnamon:
 
+No configurador aberto pela engrenagem do applet, **Recarregar applet** solicita
+ao Cinnamon que recarregue apenas o AI Limits, sem encerrar a sessão ou reiniciar
+o coletor. Após sincronizar a interface ou aplicar uma atualização, use esse
+botão e abra novamente o menu no painel. A recarga usa o método D-Bus
+`org.Cinnamon.LookingGlass.ReloadExtension`; falhas são apresentadas na janela,
+sem reiniciar automaticamente o desktop. Feche e reabra o configurador para
+carregar também alterações no próprio editor Python.
+
 ```bash
 TARGET="$HOME/.local/share/cinnamon/applets/ai-limits-widget@vlduggen"
 mkdir -p "$TARGET"

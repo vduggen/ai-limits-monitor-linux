@@ -412,6 +412,28 @@ class ProjectUpdater:
             and detect_frontend_target(self.editor_path) is not None
         )
 
+    @property
+    def can_reload_frontend(self) -> bool:
+        detected = detect_frontend_target(self.editor_path)
+        return detected is not None and detected[0] == "cinnamon"
+
+    def reload_frontend(self) -> None:
+        """Ask Cinnamon to reload only this applet, never the desktop session."""
+        if not self.can_reload_frontend:
+            raise ProjectUpdateError("reload", "A recarga está disponível apenas no applet Cinnamon instalado.", False)
+        executable = self._require_executable("gdbus")
+        try:
+            result = self.command_runner(
+                [executable, "call", "--session", "--dest", "org.Cinnamon.LookingGlass",
+                 "--object-path", "/org/Cinnamon/LookingGlass", "--method",
+                 "org.Cinnamon.LookingGlass.ReloadExtension", "ai-limits-widget@vlduggen", "APPLET"],
+                check=False, capture_output=True, text=True, timeout=15,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            raise ProjectUpdateError("reload", "Não foi possível solicitar a recarga do applet. Tente novamente.", False) from error
+        if result.returncode != 0:
+            raise ProjectUpdateError("reload", "O Cinnamon não aceitou a recarga do applet. Nenhuma sessão foi reiniciada.", False)
+
     def set_project_path(self, path: str | Path) -> Path:
         project_path = validate_project_path(path, command_runner=self.command_runner)
         save_project_path(self.settings_path, project_path)

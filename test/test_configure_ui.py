@@ -353,6 +353,22 @@ class ConfigurationWindowTests(unittest.TestCase):
         self.assertIn("nenhum build foi executado", status)
         self.assertIn("serviço não foi reiniciado", status)
 
+    def test_reloadAppletIsExplicitAndDoesNotRestartTheCollector(self):
+        project_updater = self.updater()
+        project_updater.can_reload_frontend = True
+        reload_calls = []
+        project_updater.reload_frontend = lambda: reload_calls.append(True)
+        window = self.make_window(
+            self.basic_config(), lambda _name: "/usr/bin/provider-cli",
+            project_updater=project_updater,
+            background_runner=self.immediate_background_runner,
+        )
+        self.assertEqual(reload_calls, [])
+        self.button_by_label(window, "Recarregar applet").clicked()
+        self.assertEqual(reload_calls, [True])
+        self.assertEqual(self.restart_calls, [])
+        self.assertIn("Recarga solicitada", window.update_status.get_text())
+
     def test_syncFrontendFailurePreservesApplyUpdateAndReportsStage(self):
         project_updater = self.updater(can_apply=True, behind=1)
         project_updater.sync_error = ProjectUpdateError(

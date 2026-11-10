@@ -220,6 +220,16 @@ class ConfigurationWindow(Gtk.Window):
         self.sync_frontend_button.connect("clicked", self._on_sync_frontend)
         buttons.pack_start(self.sync_frontend_button, False, False, 0)
 
+        self.reload_frontend_button = Gtk.Button.new_with_label("Recarregar applet")
+        self.reload_frontend_button.connect("clicked", self._on_reload_frontend)
+        content.pack_start(self.reload_frontend_button, False, False, 0)
+        self.reload_frontend_button.set_visible(
+            bool(getattr(self.project_updater, "can_reload_frontend", False))
+        )
+        self.reload_frontend_button.set_no_show_all(
+            not bool(getattr(self.project_updater, "can_reload_frontend", False))
+        )
+
         self.update_status = Gtk.Label()
         self.update_status.set_xalign(0)
         self.update_status.set_line_wrap(True)
@@ -256,6 +266,9 @@ class ConfigurationWindow(Gtk.Window):
         )
         self.sync_frontend_button.set_sensitive(
             available and has_project and can_sync_frontend
+        )
+        self.reload_frontend_button.set_sensitive(
+            available and bool(getattr(self.project_updater, "can_reload_frontend", False))
         )
         if hasattr(self, "close_button"):
             self.close_button.set_sensitive(available)
@@ -328,8 +341,8 @@ class ConfigurationWindow(Gtk.Window):
         details = (
             "Os arquivos da interface instalada serão substituídos pelos arquivos "
             f"atuais deste clone:\n{self.project_updater.project_path}\n\n"
-            "Nenhum build nem reinício do serviço será executado. Para ativar código "
-            "JavaScript já carregado, pode ser necessário recarregar a sessão."
+            "Nenhum build nem reinício do serviço será executado. "
+            + self._frontend_activation_hint()
         )
         dialog = Gtk.MessageDialog(
             parent=self,
@@ -456,8 +469,31 @@ class ConfigurationWindow(Gtk.Window):
         self._update_busy = False
         self.update_status.set_text(
             "Interface instalada sincronizada a partir do clone; nenhum build foi "
-            "executado e o serviço não foi reiniciado. Para ativar JavaScript já "
-            "carregado, pode ser necessário recarregar a sessão."
+            "executado e o serviço não foi reiniciado. "
+            + self._frontend_activation_hint()
+        )
+        self._refresh_project_update_controls()
+
+    def _frontend_activation_hint(self):
+        if getattr(self.project_updater, "can_reload_frontend", False):
+            return "Clique em Recarregar applet para ativar a interface, sem sair da sessão."
+        return "Para ativar JavaScript já carregado, pode ser necessário recarregar a sessão."
+
+    def _on_reload_frontend(self, _button):
+        if self._update_busy or not getattr(self.project_updater, "can_reload_frontend", False):
+            return
+        self.update_status.set_text("Recarregando apenas o applet; seus programas continuarão abertos…")
+        self._start_project_operation(
+            self.project_updater.reload_frontend,
+            self._on_frontend_reloaded,
+            failure_stage="reload",
+        )
+
+    def _on_frontend_reloaded(self, _result):
+        self._update_busy = False
+        self.update_status.set_text(
+            "Recarga solicitada ao Cinnamon. Abra o AI Limits no painel para conferir. "
+            "Sua sessão e o serviço de coleta não foram reiniciados."
         )
         self._refresh_project_update_controls()
 
@@ -466,8 +502,8 @@ class ConfigurationWindow(Gtk.Window):
         self._refresh_project_path_label()
         if result.frontend_synced:
             self.update_status.set_text(
-                "Atualização aplicada e serviço reiniciado. Para ativar o JavaScript "
-                "atualizado, pode ser necessário recarregar a sessão."
+                "Atualização aplicada e serviço reiniciado. "
+                + self._frontend_activation_hint()
             )
         else:
             self.update_status.set_text(

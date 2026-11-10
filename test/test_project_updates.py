@@ -417,6 +417,36 @@ class ProjectFrontendSyncTests(TemporaryProjectGitRepository):
         )
         self.assertEqual(restart_calls, [])
 
+    def test_reloadFrontendTargetsOnlyTheCinnamonApplet(self):
+        updater, _target, _commands, restart_calls = self.sync_updater("cinnamon")
+        calls = []
+        updater.executable_lookup = lambda name: "/usr/bin/" + name
+        updater.command_runner = lambda command, **kwargs: (
+            calls.append((command, kwargs)) or subprocess.CompletedProcess(command, 0, "()", "")
+        )
+        updater.reload_frontend()
+        self.assertTrue(updater.can_reload_frontend)
+        self.assertEqual(calls[0][0][-3:], [
+            "org.Cinnamon.LookingGlass.ReloadExtension", "ai-limits-widget@vlduggen", "APPLET"
+        ])
+        self.assertEqual(calls[0][1]["timeout"], 15)
+        self.assertEqual(restart_calls, [])
+
+    def test_reloadFrontendReportsFailureWithoutRestartingSession(self):
+        updater, _target, _commands, restart_calls = self.sync_updater("cinnamon")
+        updater.executable_lookup = lambda name: "/usr/bin/" + name
+        updater.command_runner = lambda command, **kwargs: subprocess.CompletedProcess(command, 1, "", "unavailable")
+        with self.assertRaisesRegex(RuntimeError, "Nenhuma sessão foi reiniciada"):
+            updater.reload_frontend()
+        self.assertEqual(restart_calls, [])
+
+    def test_reloadFrontendRejectsGnome(self):
+        updater, _target, _commands, restart_calls = self.sync_updater("gnome")
+        self.assertFalse(updater.can_reload_frontend)
+        with self.assertRaisesRegex(RuntimeError, "apenas no applet Cinnamon"):
+            updater.reload_frontend()
+        self.assertEqual(restart_calls, [])
+
     def test_syncCurrentFrontendRequiresKnownInstallation(self):
         updater = self.updater()
 

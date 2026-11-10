@@ -310,7 +310,12 @@ function makeHarness(initialSnapshot) {
     }
   } };
   const Tooltips = { Tooltip: class {
-    constructor(actor, text) { this.actor = actor; this.text = text; }
+    constructor(actor, text) {
+      this.actor = actor;
+      this.text = text;
+      this._tooltip = new Widget();
+      this._tooltip.clutter_text = {};
+    }
     destroy() { this.destroyed = true; }
   } };
   const Util = { spawn: (command) => launchedCommands.push(command) };
@@ -640,7 +645,8 @@ test("Cinnamon bounds the account area and identifies the age of each observatio
     item.children[0].properties.vertical === true &&
     /border-radius: 14px/.test(item.children[0].style)));
   assert.ok(collectMenuTexts(applet.menu.items).some(text =>
-    text.includes("CLI Claude · statusline local") && text.includes("há 10min") && text.includes("último conhecido")));
+    text.includes("último dado há 10min")));
+  assert.ok(applet.detailTooltips.some(tooltip => tooltip.text.includes("Fonte: Claude · sessão local") && tooltip.text.includes("há 10min")));
   assert.ok(findHeaderAction(applet, "Atualizar agora"));
   applet.on_applet_removed_from_panel();
 });
@@ -651,11 +657,79 @@ test("Cinnamon menu distinguishes a carried reset from the Desktop percentage so
   snapshot.accounts[0].windows[0].resetSource = "oauth";
   snapshot.accounts[0].windows[0].resetCheckedAt = new Date(Date.now() - 5 * 60_000).toISOString();
   const applet = createApplet(makeHarness(snapshot));
-  const resetText = collectMenuTexts(applet.menu.items)
-    .find((text) => text.includes("reset OAuth lido há 5min"));
+  const resetText = applet.detailTooltips
+    .find((tooltip) => tooltip.text.includes("reset OAuth lido há 5min"));
 
   assert.ok(resetText);
 
+  applet.on_applet_removed_from_panel();
+});
+
+test("Cinnamon quota rows show one compact detail line and keep full diagnostics in tooltips", () => {
+  const snapshot = makeSnapshot();
+  snapshot.accounts[0].windows[0].source = "claude-sdk";
+  snapshot.accounts[0].windows[0].observedAt = new Date(Date.now() - 30_000).toISOString();
+  const harness = makeHarness(snapshot);
+  const applet = createApplet(harness);
+  const tooltip = applet.detailTooltips[0];
+  const row = tooltip.actor;
+  assert.equal(row.children.length, 3); // Title/percent, progress bar, compact detail.
+  const detail = row.children[2].properties.text;
+  assert.match(detail, /^Redefine em .* · leitura há /);
+  assert.doesNotMatch(detail, /CLI|SDK|RPC|Observado|observado/);
+  assert.match(tooltip.text, /Fonte: Claude · consulta oficial/);
+  assert.equal(tooltip.text.split("\n").length, 3);
+  assert.match(tooltip.text, /\nLeitura: há /);
+  assert.match(tooltip.text, /\nReset: /);
+  assert.doesNotMatch(tooltip.text, /SDK|RPC|medição do provedor/);
+  assert.match(tooltip._tooltip.style, /max-width: 340px/);
+  assert.match(tooltip._tooltip.style, /text-align: left/);
+  assert.equal(tooltip._tooltip.clutter_text.line_wrap, true);
+  assert.match(row.accessible_name, /consulta SDK/);
+  applet.refresh();
+  assert.equal(tooltip.destroyed, true);
+  const currentTooltips = [...applet.detailTooltips];
+  applet.on_applet_removed_from_panel();
+  assert.ok(currentTooltips.every(item => item.destroyed));
+});
+
+test("Cinnamon progress bars and percentages use the provider section color", () => {
+  const snapshot = makeSnapshot();
+  snapshot.accounts[1].status = "ok";
+  delete snapshot.accounts[1].error;
+  snapshot.accounts[1].windows = [{ ...snapshot.accounts[0].windows[0] }];
+  const applet = createApplet(makeHarness(snapshot));
+  const bars = collectMenuWidgets(applet.menu.items).filter(widget => widget.properties?.style_class === "ai-limits-progress");
+  assert.equal(bars.length, 2);
+  const colors = ["#f47b53", "#10a37f"];
+  bars.forEach((bar, index) => {
+    let paintedColor;
+    bar.get_context = () => ({
+      setSourceRGBA: (...color) => { paintedColor = color; },
+      arc() {}, lineTo() {}, closePath() {}, fill() {}, $dispose() {},
+    });
+    bar.get_surface_size = () => [100, 6];
+    bar.emit("repaint");
+    const color = colors[index];
+    assert.deepEqual(paintedColor, [
+      parseInt(color.slice(1, 3), 16) / 255,
+      parseInt(color.slice(3, 5), 16) / 255,
+      parseInt(color.slice(5, 7), 16) / 255, 1,
+    ]);
+  });
+  assert.match(findMenuLabel(applet, "60% restante").style, /color: #f47b53/);
+  assert.match(findMenuLabel(applet, "40% usado").style, /color: #10a37f/);
+  applet.on_applet_removed_from_panel();
+});
+
+test("Cinnamon keeps expired reset warnings visible in the compact layout", () => {
+  const snapshot = makeSnapshot();
+  snapshot.accounts[0].windows[0].observedAt = new Date().toISOString();
+  snapshot.accounts[0].windows[0].resetsAt = new Date(Date.now() - 60_000).toISOString();
+  const applet = createApplet(makeHarness(snapshot));
+  const detail = applet.detailTooltips[0].actor.children[2];
+  assert.equal(detail.properties.text, "Reset vencido · aguardando confirmação");
+  assert.match(detail.style, /#e5b566/);
   applet.on_applet_removed_from_panel();
 });
 
