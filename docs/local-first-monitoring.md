@@ -104,6 +104,15 @@ o informado pelo CLI e 15/30/60 minutos progressivos, mais até 10% de jitter
 positivo. Outras falhas aguardam pelo menos 5 minutos. Estado corrompido impõe
 uma espera conservadora de 15 minutos. Reiniciar não é um mecanismo para burlar
 cooldown; dados locais válidos continuam sendo recebidos durante a espera.
+Após uma falha, o prazo de recuperação prevalece sobre o intervalo normal de
+consulta: quando ele expira, a próxima coleta elegível pode tentar novamente.
+No Cinnamon, o cartão informa a espera e o refresh respeita esse prazo. Se a
+tentativa continuar pendente, verifique se o serviço está ativo e examine o erro
+antes de corrigir autenticação, rede ou configuração da conta.
+O botão **Reiniciar serviço de coleta** no Cinnamon solicita explicitamente um
+restart do serviço do usuário; ele não apaga o estado nem libera cooldowns. Após
+o restart, solicite uma atualização e observe o resultado. Se o serviço ou a
+configuração continuar com problemas, use o diagnóstico abaixo.
 
 ## Pedidos e diagnóstico
 
@@ -113,7 +122,7 @@ node dist/index.js check --json
 ```
 
 Com daemon ativo, os pedidos são coordenados por UUID e retornam resultados
-`observed`, `queried`, `unchanged`, `blocked` ou `error`. No GNOME, Atualizar agora
+`observed`, `queried`, `unchanged`, `blocked` ou `error`. No GNOME e no Cinnamon, Atualizar agora
 não reinicia o serviço. Snapshot novo sem resultado correlacionado não confirma
 o pedido. Um resultado processado não equivale a percentuais novos. Sem daemon,
 `check` usa o mesmo lock para uma execução única; `refresh` pede iniciar o coletor.

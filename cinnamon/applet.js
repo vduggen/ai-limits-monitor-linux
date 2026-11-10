@@ -17,7 +17,6 @@ const CACHE_PATH = GLib.build_filenamev([
     CACHE_DIRECTORY,
     "usage.json",
 ]);
-const FORCE_OAUTH_REQUEST_PATH = `${CACHE_PATH}.force-oauth`;
 const CACHE_DEBOUNCE_MS = 150;
 const MONITOR_RETRY_SECONDS = 5;
 const REFRESH_TIMEOUT_SECONDS = 60;
@@ -33,20 +32,56 @@ function readSnapshotText() {
     }
 }
 
-function writeForcedOAuthRefreshRequest() {
-    GLib.mkdir_with_parents(CACHE_DIRECTORY, 0o700);
-    GLib.file_set_contents(FORCE_OAUTH_REQUEST_PATH, "1");
-    const [ok, contents] = GLib.file_get_contents(FORCE_OAUTH_REQUEST_PATH);
-    if (!ok || ByteArray.toString(contents).trim() !== "1")
-        throw new Error("Não foi possível solicitar uma nova leitura OAuth.");
+function requestDirectory() {
+    const attributes = "standard::type,standard::is-symlink,unix::uid,unix::mode";
+    const uid = Gio.Credentials.new().get_unix_user();
+    let directory = Gio.File.new_for_path("/");
+    for (const component of CACHE_DIRECTORY.split("/").filter(Boolean)) {
+        if (component === "." || component === "..") throw new Error("Caminho privado inválido.");
+        directory = directory.get_child(component);
+        const info = directory.query_info(attributes, Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
+        if (info.get_is_symlink() || info.get_file_type() !== Gio.FileType.DIRECTORY)
+            throw new Error("Diretório privado inválido.");
+    }
+    const rootInfo = directory.query_info(attributes, Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
+    if (rootInfo.get_attribute_uint32("unix::uid") !== uid || (rootInfo.get_attribute_uint32("unix::mode") & 0o022))
+        throw new Error("Raiz privada insegura.");
+    directory = directory.get_child("requests");
+    const info = directory.query_info(attributes, Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
+    if (info.get_is_symlink() || info.get_file_type() !== Gio.FileType.DIRECTORY
+        || info.get_attribute_uint32("unix::uid") !== uid || (info.get_attribute_uint32("unix::mode") & 0o077))
+        throw new Error("Diretório de pedidos inseguro.");
+    return directory;
 }
 
-function clearForcedOAuthRefreshRequest() {
+function submitRefreshRequest(request, callback) {
+    const file = requestDirectory().get_child(`${request.id}.json`);
+    const bytes = new GLib.Bytes(ByteArray.fromString(JSON.stringify(request)));
+    file.replace_contents_bytes_async(bytes, null, false,
+        Gio.FileCreateFlags.PRIVATE | Gio.FileCreateFlags.REPLACE_DESTINATION, null,
+        (target, result) => {
+            try { target.replace_contents_finish(result); callback(null); }
+            catch (error) { callback(error); }
+        });
+}
+
+function readRefreshResult(id) {
+    const file = requestDirectory().get_child(`${id}.result.json`);
+    let info;
     try {
-        GLib.unlink(FORCE_OAUTH_REQUEST_PATH);
+        info = file.query_info("standard::type,standard::is-symlink,standard::size,unix::uid,unix::mode", Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
     } catch (error) {
-        // The service may already have consumed the one-shot request.
+        if (error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND)) return null;
+        throw error;
     }
+    if (info.get_is_symlink() || info.get_file_type() !== Gio.FileType.REGULAR || info.get_size() > 65536
+        || info.get_attribute_uint32("unix::uid") !== Gio.Credentials.new().get_unix_user()
+        || (info.get_attribute_uint32("unix::mode") & 0o077)) throw new Error("Resultado privado inválido.");
+    const [ok, contents] = file.load_contents(null);
+    if (!ok || contents.length > 65536) throw new Error("Resultado inválido.");
+    const result = JSON.parse(ByteArray.toString(contents));
+    if (result.id !== id || !Array.isArray(result.accounts)) throw new Error("Resultado sem correlação.");
+    return result;
 }
 
 function isUsageCacheEvent(changedPath, otherPath) {
@@ -226,7 +261,9 @@ class AiLimitsApplet extends Applet.Applet {
         this.cacheRefreshId = 0;
         this.monitorRetryId = 0;
         this.refreshTimeoutId = 0;
+        this.refreshResultPollId = 0;
         this.pendingRefresh = null;
+        this.restartingService = false;
         this.refreshButton = null;
         this.headerTooltips = [];
         this.snapshotView = this.snapshotModel.buildSnapshotView(null);
@@ -349,13 +386,14 @@ class AiLimitsApplet extends Applet.Applet {
 
     refresh() {
         if (this.removed) return;
-        this.snapshotView = this.snapshotModel.buildSnapshotView(readSnapshotText());
+        const snapshotText = readSnapshotText();
+        this.snapshotView = this.snapshotModel.buildSnapshotView(snapshotText);
         const panelLabels = this.snapshotModel.buildPanelLabels(this.snapshotView);
         const menuView = this.snapshotModel.buildMenuView(this.snapshotView);
         this.renderPanel(panelLabels.entries);
         this.set_applet_tooltip(menuView.statusText);
         this.renderMenu(menuView);
-        this.finishPendingRefresh(this.snapshotView);
+        try { this.finishPendingRefresh(JSON.parse(snapshotText).refreshResult); } catch (error) { /* Invalid cache. */ }
     }
 
     renderMenu(view) {
@@ -396,6 +434,16 @@ class AiLimitsApplet extends Applet.Applet {
             y_align: St.Align.MIDDLE,
             y_fill: false,
         });
+        const restartButton = makeHeaderAction(
+            "system-reboot-symbolic",
+            "Reiniciar serviço de coleta",
+            () => this.restartService(),
+        );
+        restartButton.reactive = !this.restartingService;
+        restartButton.can_focus = !this.restartingService;
+        updateHeaderActionStyle(restartButton);
+        actions.add(restartButton, { x_align: St.Align.MIDDLE, x_fill: false, y_align: St.Align.MIDDLE, y_fill: false });
+        this.headerTooltips.push(restartButton.aiLimitsTooltip);
         header.add(actions);
         addPopupContent(this.menu, header);
 
@@ -408,6 +456,13 @@ class AiLimitsApplet extends Applet.Applet {
         } else {
             const providerLabels = { claude: "Claude", codex: "Codex" };
             const providerColors = { claude: "#f47b53", codex: "#10a37f" };
+            const scroll = new St.ScrollView({ x_expand: true, reactive: true, overlay_scrollbars: true });
+            const monitorHeight = Main.layoutManager.primaryMonitor?.height || 768;
+            scroll.set_style(`max-height: ${Math.max(120, Math.floor(monitorHeight * 0.6))}px;`);
+            scroll.set_policy(St.PolicyType.NEVER, St.PolicyType.AUTOMATIC);
+            const cards = new St.BoxLayout({ vertical: true, x_expand: true });
+            scroll.add_actor(cards);
+            addPopupContent(this.menu, scroll);
             this.snapshotView.accounts
                 .filter((account) => account.status !== "unsupported")
                 .forEach((account) => {
@@ -415,6 +470,7 @@ class AiLimitsApplet extends Applet.Applet {
                         account,
                         providerLabels[account.provider],
                         providerColors[account.provider],
+                        cards,
                     );
             });
         }
@@ -438,11 +494,12 @@ class AiLimitsApplet extends Applet.Applet {
         updateHeaderActionStyle(this.refreshButton);
     }
 
-    renderAccountCard(account, providerLabel, providerColor) {
+    renderAccountCard(account, providerLabel, providerColor, container) {
         const card = new St.BoxLayout({ vertical: true, x_expand: true });
         card.set_style([
             "spacing: 9px;",
             "padding: 12px;",
+            "margin: 4px 8px;",
             "max-width: 440px;",
             "border-radius: 14px;",
             "border: 1px solid rgba(128, 128, 128, 0.24);",
@@ -490,6 +547,16 @@ class AiLimitsApplet extends Applet.Applet {
                 "color: #e97870; font-size: 0.92em; max-width: 410px;",
             ));
         }
+        if (account.collection?.nextRetryAt) {
+            const retryTime = Date.parse(account.collection.nextRetryAt);
+            if (Number.isFinite(retryTime)) {
+                const remaining = retryTime - Date.now();
+                const message = remaining > 0
+                    ? `Nova tentativa em ${formatDuration(remaining / 60000)}. O refresh respeita esta espera.`
+                    : "Nova tentativa pendente. Use Atualizar agora ou verifique o serviço.";
+                card.add(makeLabel(message, "color: #e1e5e9; font-size: 0.85em; max-width: 410px;"));
+            }
+        }
         if (account.windows.length === 0 && !account.error) {
             card.add(makeLabel("Esta conta não reportou limites.", "color: #e1e5e9; font-size: 0.9em;"));
         } else if (account.windows.length > 0) {
@@ -509,6 +576,10 @@ class AiLimitsApplet extends Applet.Applet {
                 ));
                 row.add(labels);
                 row.add(makeProgressBar(percent));
+                if (window.observedAt || window.sourceEventAt) {
+                    const observation = this.snapshotModel.buildWindowView(window, displayMode);
+                    row.add(makeLabel(`${observation.sourceText} · ${observation.ageText} · ${observation.state === "observed" ? "observado" : observation.state === "expired" ? "reset vencido" : "último conhecido"}`, "color: #dce1e7; font-size: 0.82em;"));
+                }
                 const resetSource = window.resetSource === "oauth"
                     ? "OAuth"
                     : window.resetSource === "statusLine" ? "status line local" : null;
@@ -528,7 +599,7 @@ class AiLimitsApplet extends Applet.Applet {
             });
         }
 
-        addPopupContent(this.menu, card);
+        container.add(card);
     }
 
     monitorCache() {
@@ -586,24 +657,25 @@ class AiLimitsApplet extends Applet.Applet {
     clearPendingRefresh(expectedRefresh) {
         if (expectedRefresh && this.pendingRefresh !== expectedRefresh) return;
         this.removeSource("refreshTimeoutId");
+        this.removeSource("refreshResultPollId");
         this.pendingRefresh = null;
         this.setRefreshButtonSensitive(true);
     }
 
-    finishPendingRefresh(snapshotView) {
-        if (
-            !this.pendingRefresh
-            || !snapshotView.createdAt
-            || snapshotView.createdAt === this.pendingRefresh.previousCreatedAt
-        ) return;
-
+    finishPendingRefresh(result) {
+        if (!this.pendingRefresh || !result || result.id !== this.pendingRefresh.id || !Array.isArray(result.accounts)) return;
         this.clearPendingRefresh();
-        Main.notify("Limites atualizados.", "Um novo snapshot foi recebido.");
+        const counts = result.accounts.reduce((all, account) => {
+            all[account.outcome] = (all[account.outcome] || 0) + 1;
+            return all;
+        }, {});
+        const errors = result.accounts.filter(account => account.outcome === "error" && account.error)
+            .map(account => `${account.accountId}: ${account.error}`).join(" · ");
+        Main.notify("Atualização concluída.", `Consultadas: ${counts.queried || 0}; observadas: ${counts.observed || 0}; sem alteração: ${counts.unchanged || 0}; bloqueadas: ${counts.blocked || 0}; erros: ${counts.error || 0}.${errors ? ` ${errors}` : ""}`);
     }
 
     failPendingRefresh(error, expectedRefresh) {
         if (!expectedRefresh || this.pendingRefresh !== expectedRefresh) return;
-        clearForcedOAuthRefreshRequest();
         this.clearPendingRefresh(expectedRefresh);
         Main.notify(
             "Não foi possível atualizar os limites.",
@@ -614,7 +686,7 @@ class AiLimitsApplet extends Applet.Applet {
     requestRefresh() {
         if (this.removed || this.pendingRefresh) return;
         const pendingRefresh = {
-            previousCreatedAt: this.snapshotView.createdAt,
+            id: GLib.uuid_string_random(),
         };
         this.pendingRefresh = pendingRefresh;
         this.setRefreshButtonSensitive(false);
@@ -624,34 +696,69 @@ class AiLimitsApplet extends Applet.Applet {
             () => {
                 this.refreshTimeoutId = 0;
                 if (!this.removed && this.pendingRefresh === pendingRefresh) {
-                    clearForcedOAuthRefreshRequest();
                     this.clearPendingRefresh(pendingRefresh);
                     Main.notify(
                         "A atualização está demorando.",
-                        "O serviço não gravou um novo snapshot em 60 segundos.",
+                        "O serviço não concluiu o pedido em 60 segundos. Verifique se está ativo.",
                     );
                 }
                 return GLib.SOURCE_REMOVE;
             },
         );
+        this.refreshResultPollId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
+            if (this.removed || this.pendingRefresh !== pendingRefresh) {
+                this.refreshResultPollId = 0;
+                return GLib.SOURCE_REMOVE;
+            }
+            try {
+                const result = readRefreshResult(pendingRefresh.id);
+                if (result) {
+                    this.refreshResultPollId = 0;
+                    this.finishPendingRefresh(result);
+                    return GLib.SOURCE_REMOVE;
+                }
+            } catch (error) {
+                this.refreshResultPollId = 0;
+                this.failPendingRefresh(error, pendingRefresh);
+                return GLib.SOURCE_REMOVE;
+            }
+            return GLib.SOURCE_CONTINUE;
+        });
 
         try {
-            writeForcedOAuthRefreshRequest();
+            submitRefreshRequest({ version: 1, id: pendingRefresh.id, createdAt: new Date().toISOString() }, (error) => {
+                if (this.removed || this.pendingRefresh !== pendingRefresh) return;
+                if (error) this.failPendingRefresh(error, pendingRefresh);
+            });
+        } catch (error) {
+            this.failPendingRefresh(error, pendingRefresh);
+        }
+    }
+
+    restartService() {
+        if (this.removed || this.restartingService) return;
+        this.restartingService = true;
+        this.renderMenu(this.snapshotModel.buildMenuView(this.snapshotView));
+        try {
             const process = Gio.Subprocess.new(
                 ["systemctl", "--user", "restart", "ai-limits-widget.service"],
                 Gio.SubprocessFlags.NONE,
             );
             process.wait_check_async(null, (subprocess, result) => {
-                if (this.removed || this.pendingRefresh !== pendingRefresh) return;
+                if (this.removed) return;
+                this.restartingService = false;
                 try {
-                    if (!subprocess.wait_check_finish(result))
-                        this.failPendingRefresh(new Error("systemctl terminou sem sucesso."), pendingRefresh);
+                    if (!subprocess.wait_check_finish(result)) throw new Error("systemctl terminou sem sucesso.");
+                    Main.notify("Serviço reiniciado.", "Use Atualizar agora. Os prazos de espera dos provedores continuam válidos.");
                 } catch (error) {
-                    this.failPendingRefresh(error, pendingRefresh);
+                    Main.notify("Não foi possível reiniciar o serviço.", error.message || String(error));
                 }
+                this.refresh();
             });
         } catch (error) {
-            this.failPendingRefresh(error, pendingRefresh);
+            this.restartingService = false;
+            Main.notify("Não foi possível reiniciar o serviço.", error.message || String(error));
+            this.refresh();
         }
     }
 

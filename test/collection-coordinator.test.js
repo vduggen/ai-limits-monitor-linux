@@ -34,6 +34,24 @@ test('fresh local suppresses automatic but not manual reads and failures back of
   now = Date.parse(c.states()[0].nextRetryAt); await c.tick(); assert.equal(Date.parse(c.states()[0].nextRetryAt) - now, 3600000);
   await c.close();
 });
+
+test('automatic recovery retries at the failure deadline even when the normal interval is longer', async () => {
+  let now = start; let calls = 0;
+  const c = createCoordinator({ accounts: [account], config: { probeTimeoutSeconds: 5, pollIntervalSeconds: 600 }, initial: [],
+    now: () => now, random: () => 0, publish: async () => {}, probe: async () => {
+      calls++;
+      return calls === 1
+        ? { usage: { ...account, status: 'error', windows: [], error: 'indisponível' }, failure: 'transient' }
+        : { usage: { ...account, status: 'ok', windows: [quota(42)] } };
+    } });
+  await c.tick();
+  now += 299999; await c.tick(); assert.equal(calls, 1);
+  assert.equal((await c.refresh(request)).accounts[0].outcome, 'blocked');
+  now++; await c.tick(); assert.equal(calls, 2);
+  assert.equal(c.states()[0].error, undefined);
+  assert.equal(c.states()[0].windows[0].usedPercent, 42);
+  await c.close();
+});
 test('local-only never probes and another identity discards a late response', async () => {
   let calls = 0;
   const c = createCoordinator({ accounts: [{ ...account, collectionMode: 'local-only' }], config: { probeTimeoutSeconds: 2 }, initial: [], now: () => start, random: () => 0, publish: async () => {}, probe: async () => { calls++; throw Error('not expected'); } });

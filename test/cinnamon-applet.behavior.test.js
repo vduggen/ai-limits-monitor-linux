@@ -18,6 +18,8 @@ function makeHarness(initialSnapshot) {
   const sources = new Map();
   const removedSources = [];
   const subprocesses = [];
+  const requests = [];
+  let refreshResult = null;
   const notifications = [];
   const launchedCommands = [];
   const hotkeyRegistrations = [];
@@ -60,6 +62,8 @@ function makeHarness(initialSnapshot) {
     set_child(child) {
       this.children = [child];
     }
+    add_actor(child) { this.children.push(child); }
+    set_policy(horizontal, vertical) { this.policy = [horizontal, vertical]; }
 
     set_size(width, height) {
       this.size = [width, height];
@@ -172,6 +176,8 @@ function makeHarness(initialSnapshot) {
     SOURCE_REMOVE: false,
     SOURCE_CONTINUE: true,
     get_user_cache_dir: () => "/tmp/opencode-cinnamon-test",
+    uuid_string_random: () => "77b91a3e-c426-4c24-99c6-876bf5162d8f",
+    Bytes: class { constructor(value) { this.value = value; } },
     build_filenamev: (parts) => path.posix.join(...parts),
     mkdir_with_parents: () => true,
     file_set_contents: (_filePath, contents) => { forcedOAuthRequest = contents; return true; },
@@ -194,6 +200,11 @@ function makeHarness(initialSnapshot) {
     },
   };
   const Gio = {
+    Credentials: { new: () => ({ get_unix_user: () => 1000 }) },
+    FileQueryInfoFlags: { NOFOLLOW_SYMLINKS: 1 },
+    FileType: { DIRECTORY: 1, REGULAR: 2 },
+    IOErrorEnum: { NOT_FOUND: 1 },
+    FileCreateFlags: { PRIVATE: 1, REPLACE_DESTINATION: 2 },
     FileMonitorFlags: { WATCH_MOVES: 1 },
     SubprocessFlags: { NONE: 0 },
     FileIcon: class {
@@ -203,6 +214,20 @@ function makeHarness(initialSnapshot) {
     },
     File: {
       new_for_path: (filePath) => ({
+        get_child(name) {
+          const childPath = path.posix.join(filePath, name);
+          return Gio.File.new_for_path(childPath);
+        },
+        query_info: () => {
+          const resultFile = filePath.endsWith('.result.json');
+          if (resultFile && !refreshResult) throw { matches: () => true };
+          return { get_is_symlink: () => false, get_file_type: () => resultFile ? 2 : 1, get_size: () => 100, get_attribute_uint32: (name) => name === 'unix::uid' ? 1000 : resultFile ? 0o600 : 0o700 };
+        },
+        load_contents: () => [true, new TextEncoder().encode(JSON.stringify(refreshResult))],
+        replace_contents_bytes_async(bytes, _etag, _backup, _flags, _cancel, callback) {
+          requests.push(JSON.parse(new TextDecoder().decode(bytes.value)));
+          callback({ replace_contents_finish: () => true }, {});
+        },
         monitor_directory: (flags, cancellable) => {
           assert.equal(filePath, cacheDirectory);
           assert.equal(flags, Gio.FileMonitorFlags.WATCH_MOVES);
@@ -289,6 +314,7 @@ function makeHarness(initialSnapshot) {
   } };
   const Util = { spawn: (command) => launchedCommands.push(command) };
   const Main = {
+    layoutManager: { primaryMonitor: { height: 800 } },
     notify: (title, body) => notifications.push({ title, body }),
     keybindingManager: {
       addXletHotKey(applet, name, accelerator, callback) {
@@ -316,10 +342,12 @@ function makeHarness(initialSnapshot) {
     Button: Widget,
     Widget,
     DrawingArea: Widget,
+    ScrollView: Widget,
+    PolicyType: { NEVER: 0, AUTOMATIC: 1 },
     IconType: { FULLCOLOR: 1, SYMBOLIC: 2 },
     Align: { MIDDLE: "middle", END: "end" },
   };
-  const ByteArray = { toString: (bytes) => new TextDecoder().decode(bytes) };
+  const ByteArray = { toString: (bytes) => new TextDecoder().decode(bytes), fromString: (text) => new TextEncoder().encode(text) };
 
   const sourceWithoutImports = appletSource.replace(/^const \w+ = imports\..*;\n/gm, "");
   const AiLimitsApplet = new Function(
@@ -337,6 +365,7 @@ function makeHarness(initialSnapshot) {
     launchedCommands,
     monitor,
     notifications,
+    requests,
     removedHotkeys,
     removedSources,
     sources,
@@ -345,6 +374,7 @@ function makeHarness(initialSnapshot) {
     setAppletSetting(applet, key, value) { applet.settings.set(key, value); },
     setPanelIconSize(value) { panelIconSize = value; },
     setSnapshot(value) { snapshot = value; },
+    setRefreshResult(value) { refreshResult = value; },
     get forcedOAuthRequest() { return forcedOAuthRequest; },
     snapshotModel: snapshotContext.AiLimitsSnapshot,
   };
@@ -538,7 +568,7 @@ test("Cinnamon menu renders account cards with current limits, reset times, and 
   const progressBars = widgets.filter((widget) => widget.properties?.style_class === "ai-limits-progress");
   const cards = applet.menu.items.filter((item) => item.isCustomMenuItem);
 
-  assert.equal(cards.length, 3); // Header and one card per configured usable account.
+  assert.equal(cards.length, 2); // Header and scrollable account area.
   assert.ok(texts.includes("AI Limits"));
   assert.ok(texts.includes("Claude"));
   assert.ok(texts.includes("Codex"));
@@ -591,6 +621,21 @@ test("Cinnamon menu shows the source and age of current account readings", () =>
   applet.on_applet_removed_from_panel();
 });
 
+test("Cinnamon bounds the account area and identifies the age of each observation", () => {
+  const snapshot = makeSnapshot();
+  snapshot.accounts[0].windows[0].source = "claude-statusline";
+  snapshot.accounts[0].windows[0].observedAt = new Date(Date.now() - 10 * 60_000).toISOString();
+  snapshot.accounts[1].error = "Erro longo ".repeat(1000);
+  const applet = createApplet(makeHarness(snapshot));
+  const scroll = collectMenuWidgets(applet.menu.items).find(widget => widget.policy);
+  assert.match(scroll.style, /max-height: 480px/);
+  assert.deepEqual(scroll.policy, [0, 1]);
+  assert.ok(collectMenuTexts(applet.menu.items).some(text =>
+    text.includes("CLI Claude · statusline local") && text.includes("há 10min") && text.includes("último conhecido")));
+  assert.ok(findHeaderAction(applet, "Atualizar agora"));
+  applet.on_applet_removed_from_panel();
+});
+
 test("Cinnamon menu distinguishes a carried reset from the Desktop percentage source", () => {
   const snapshot = makeSnapshot();
   snapshot.accounts[0].source = "desktop";
@@ -624,18 +669,23 @@ test("Cinnamon menu keeps stale quota values visible beside the source warning",
   applet.on_applet_removed_from_panel();
 });
 
-test("Cinnamon manual refresh is async, waits for a new snapshot, and cleans up its monitor", () => {
+test("Cinnamon explains the retry deadline for a failed account", () => {
+  const snapshot = makeSnapshot();
+  snapshot.accounts[1].collection = { nextRetryAt: new Date(Date.now() + 4 * 60_000).toISOString() };
+  const applet = createApplet(makeHarness(snapshot));
+  assert.ok(collectMenuTexts(applet.menu.items).some(text => text.includes("Nova tentativa em") && text.includes("refresh respeita esta espera")));
+  applet.on_applet_removed_from_panel();
+});
+
+test("Cinnamon manual refresh waits for its correlated result and cleans up its monitor", () => {
   const harness = makeHarness(makeSnapshot("2026-10-26T11:00:00.000Z"));
   const applet = createApplet(harness);
   const refreshButton = findHeaderAction(applet, "Atualizar agora");
 
   refreshButton.click();
   refreshButton.click();
-  assert.equal(harness.subprocesses.length, 1);
-  assert.equal(harness.forcedOAuthRequest, "1");
-  assert.deepEqual(harness.subprocesses[0].command, [
-    "systemctl", "--user", "restart", "ai-limits-widget.service",
-  ]);
+  assert.equal(harness.requests.length, 1);
+  assert.equal(harness.subprocesses.length, 0);
   assert.equal(refreshButton.reactive, false);
   assert.equal(refreshButton.children[0].style, "color: #8b9299;");
 
@@ -647,10 +697,16 @@ test("Cinnamon manual refresh is async, waits for a new snapshot, and cleans up 
   const debounce = harness.sources.get(applet.cacheRefreshId);
   assert.equal(debounce.duration, 150);
   debounce.callback();
+  assert.ok(applet.pendingRefresh);
+  const resultSnapshot = makeSnapshot("2026-10-26T12:01:00.000Z");
+  resultSnapshot.refreshResult = { id: harness.requests[0].id, accounts: [{ outcome: "blocked" }] };
+  harness.setSnapshot(resultSnapshot);
+  applet.refresh();
 
   assert.equal(applet.pendingRefresh, null);
   assert.equal(applet.refreshButton.reactive, true);
-  assert.equal(harness.notifications[0].title, "Limites atualizados.");
+  assert.equal(harness.notifications[0].title, "Atualização concluída.");
+  assert.match(harness.notifications[0].body, /bloqueadas: 1/);
 
   const pendingRefreshId = applet.timeoutId;
   applet.on_applet_removed_from_panel();
@@ -659,22 +715,54 @@ test("Cinnamon manual refresh is async, waits for a new snapshot, and cleans up 
   assert.equal(harness.monitor.cancelled, true);
 });
 
-test("Cinnamon manual refresh reports service failures and snapshot timeouts", () => {
+test("Cinnamon manual refresh reports snapshot timeouts", () => {
   const harness = makeHarness(makeSnapshot());
   const applet = createApplet(harness);
   const refreshButton = findHeaderAction(applet, "Atualizar agora");
 
   refreshButton.click();
   assert.equal(harness.sources.get(applet.refreshTimeoutId).duration, 60);
-  harness.subprocesses[0].completion(harness.subprocesses[0], false);
-  assert.equal(applet.pendingRefresh, null);
-  assert.equal(harness.notifications[0].title, "Não foi possível atualizar os limites.");
-
-  refreshButton.click();
   const timeout = harness.sources.get(applet.refreshTimeoutId);
   timeout.callback();
   assert.equal(applet.pendingRefresh, null);
-  assert.equal(harness.notifications[1].title, "A atualização está demorando.");
+  assert.equal(harness.notifications[0].title, "A atualização está demorando.");
 
+  applet.on_applet_removed_from_panel();
+});
+
+test("Cinnamon reports a correlated error result even without a new snapshot", () => {
+  const harness = makeHarness(makeSnapshot());
+  const applet = createApplet(harness);
+  findHeaderAction(applet, "Atualizar agora").click();
+  const poll = harness.sources.get(applet.refreshResultPollId);
+  assert.equal(poll.callback(), true);
+  harness.setRefreshResult({ id: harness.requests[0].id, accounts: [{ accountId: "all", outcome: "error", error: "Pedido recusado pelo coletor." }] });
+  assert.equal(poll.callback(), false);
+  assert.equal(applet.pendingRefresh, null);
+  assert.match(harness.notifications[0].body, /Pedido recusado pelo coletor/);
+  applet.on_applet_removed_from_panel();
+});
+
+test("Cinnamon offers an explicit service restart without deleting cooldown state", () => {
+  const harness = makeHarness(makeSnapshot());
+  const applet = createApplet(harness);
+  findHeaderAction(applet, "Reiniciar serviço de coleta").click();
+  assert.deepEqual(harness.subprocesses[0].command, ["systemctl", "--user", "restart", "ai-limits-widget.service"]);
+  findHeaderAction(applet, "Reiniciar serviço de coleta").click();
+  assert.equal(harness.subprocesses.length, 1);
+  harness.subprocesses[0].completion(harness.subprocesses[0], true);
+  assert.match(harness.notifications[0].body, /prazos de espera/);
+  assert.equal(harness.requests.length, 0);
+  applet.on_applet_removed_from_panel();
+});
+
+test("Cinnamon reports service restart failures and allows another attempt", () => {
+  const harness = makeHarness(makeSnapshot());
+  const applet = createApplet(harness);
+  findHeaderAction(applet, "Reiniciar serviço de coleta").click();
+  harness.subprocesses[0].completion(harness.subprocesses[0], false);
+  assert.equal(harness.notifications[0].title, "Não foi possível reiniciar o serviço.");
+  findHeaderAction(applet, "Reiniciar serviço de coleta").click();
+  assert.equal(harness.subprocesses.length, 2);
   applet.on_applet_removed_from_panel();
 });

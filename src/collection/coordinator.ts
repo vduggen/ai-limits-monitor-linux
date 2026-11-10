@@ -59,7 +59,9 @@ export function createCoordinator(options: {
     if (policy.mode === "local-only" || (!manual && (state.lastLocalEventAt && now - Date.parse(state.lastLocalEventAt) < 120000)
       && policy.mode !== "remote-only")) return { accountId: a.id, outcome: "unchanged" };
     const existing = running.get(a.id); if (existing) return existing;
-    if (!manual && state.lastAttemptAt && now - Date.parse(state.lastAttemptAt) < policy.remoteIntervalSeconds * 1000) return { accountId: a.id, outcome: "unchanged" };
+    // A failed attempt has its own retry deadline; the normal polling interval
+    // must not postpone recovery after that deadline has elapsed.
+    if (!manual && !state.nextRetryAt && state.lastAttemptAt && now - Date.parse(state.lastAttemptAt) < policy.remoteIntervalSeconds * 1000) return { accountId: a.id, outcome: "unchanged" };
     const generation = state.binding.generation;
     const work = (async (): Promise<RefreshResult["accounts"][number]> => {
       values.set(a.id, { ...state, lastAttemptAt: new Date(now).toISOString() });
