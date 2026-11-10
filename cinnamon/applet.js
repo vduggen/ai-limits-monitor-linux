@@ -466,6 +466,9 @@ class AiLimitsApplet extends Applet.Applet {
             scroll.set_style(`max-height: ${Math.max(120, Math.floor(monitorHeight * 0.6))}px;`);
             scroll.set_policy(St.PolicyType.NEVER, St.PolicyType.AUTOMATIC);
             const cards = new St.BoxLayout({ vertical: true, x_expand: true });
+            // Leave a gutter for the overlay scrollbar instead of painting it
+            // against the card borders.
+            cards.set_style("padding-right: 12px;");
             scroll.add_actor(cards);
             addPopupContent(this.menu, scroll);
             this.snapshotView.accounts

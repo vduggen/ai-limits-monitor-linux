@@ -465,7 +465,7 @@ class ProjectUpdater:
         )
 
     def sync_current_frontend(self) -> None:
-        """Copy this checkout's frontend only when it is clean and current."""
+        """Copy a clean checkout, including committed local frontend fixes."""
         if not self.can_sync_frontend:
             raise ProjectUpdateError(
                 "preflight",
@@ -499,14 +499,6 @@ class ProjectUpdater:
                 "sincronizar a interface.",
                 False,
             )
-        if update_check.ahead:
-            raise ProjectUpdateError(
-                "preflight",
-                "A branch contém commits locais não publicados; alinhe o clone ao "
-                "upstream antes de sincronizar.",
-                False,
-            )
-
         try:
             if not sync_installed_frontend(update_check.project_path, self.editor_path):
                 raise RuntimeError("A instalação do frontend não é reconhecida.")

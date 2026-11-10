@@ -631,6 +631,7 @@ test("Cinnamon bounds the account area and identifies the age of each observatio
   const scroll = collectMenuWidgets(applet.menu.items).find(widget => widget.policy);
   assert.match(scroll.style, /max-height: 480px/);
   assert.deepEqual(scroll.policy, [0, 1]);
+  assert.match(scroll.children[0].style, /padding-right: 12px/);
   const accountItems = scroll.children[0].children;
   assert.equal(accountItems.length, 2);
   // Keep Cinnamon's PopupBaseMenuItem wrapper: its preferred-height contract

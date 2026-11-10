@@ -400,7 +400,7 @@ class ProjectFrontendSyncTests(TemporaryProjectGitRepository):
         self.assertEqual(list(target.iterdir()), [target / "configure.py"])
         self.assertEqual(restart_calls, [])
 
-    def test_syncCurrentFrontendRejectsLocalCommitsAheadOfUpstream(self):
+    def test_syncCurrentFrontendAcceptsCommittedLocalFixesWithoutPublishing(self):
         updater, target, _commands, restart_calls = self.sync_updater("cinnamon")
         (self.project / "local.txt").write_text("local commit\n", encoding="utf-8")
         self.git(["add", "local.txt"], cwd=self.project)
@@ -408,10 +408,13 @@ class ProjectFrontendSyncTests(TemporaryProjectGitRepository):
         self.git(["config", "user.email", "updater-tests@example.invalid"], cwd=self.project)
         self.git(["commit", "-m", "local change"], cwd=self.project)
 
-        with self.assertRaisesRegex(RuntimeError, "commits locais"):
-            updater.sync_current_frontend()
+        updater.sync_current_frontend()
 
-        self.assertEqual(list(target.iterdir()), [target / "configure.py"])
+        self.assertTrue((target / "applet.js").is_file())
+        self.assertEqual(
+            self.git(["rev-list", "--count", "@{upstream}..HEAD"], cwd=self.project).stdout.strip(),
+            "1",
+        )
         self.assertEqual(restart_calls, [])
 
     def test_syncCurrentFrontendRequiresKnownInstallation(self):
