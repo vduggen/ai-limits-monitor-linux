@@ -155,6 +155,7 @@ function makeHarness(initialSnapshot) {
       this.isCustomMenuItem = true;
       this.children = [];
       this.actor = {
+        children: this.children,
         styleClasses: [],
         add_style_class_name(styleClass) { this.styleClasses.push(styleClass); },
         set_style(style) { this.style = style; },
@@ -630,6 +631,13 @@ test("Cinnamon bounds the account area and identifies the age of each observatio
   const scroll = collectMenuWidgets(applet.menu.items).find(widget => widget.policy);
   assert.match(scroll.style, /max-height: 480px/);
   assert.deepEqual(scroll.policy, [0, 1]);
+  const accountItems = scroll.children[0].children;
+  assert.equal(accountItems.length, 2);
+  // Keep Cinnamon's PopupBaseMenuItem wrapper: its preferred-height contract
+  // prevents ScrollView from allocating only the card's compressed minimum.
+  assert.ok(accountItems.every(item => item.children.length === 1 &&
+    item.children[0].properties.vertical === true &&
+    /border-radius: 14px/.test(item.children[0].style)));
   assert.ok(collectMenuTexts(applet.menu.items).some(text =>
     text.includes("CLI Claude · statusline local") && text.includes("há 10min") && text.includes("último conhecido")));
   assert.ok(findHeaderAction(applet, "Atualizar agora"));

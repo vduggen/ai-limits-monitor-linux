@@ -95,10 +95,15 @@ function addStyledItem(menu, text, labelStyle) {
     return item;
 }
 
-function addPopupContent(menu, content) {
+function makePopupContent(content) {
     const item = new PopupMenu.PopupBaseMenuItem({ reactive: false });
     item.actor.set_style("padding: 0; margin: 4px 8px; background-color: transparent;");
     item.addActor(content, { span: -1, expand: true });
+    return item;
+}
+
+function addPopupContent(menu, content) {
+    const item = makePopupContent(content);
     menu.addMenuItem(item);
     return item;
 }
@@ -499,7 +504,6 @@ class AiLimitsApplet extends Applet.Applet {
         card.set_style([
             "spacing: 9px;",
             "padding: 12px;",
-            "margin: 4px 8px;",
             "max-width: 440px;",
             "border-radius: 14px;",
             "border: 1px solid rgba(128, 128, 128, 0.24);",
@@ -599,7 +603,10 @@ class AiLimitsApplet extends Applet.Applet {
             });
         }
 
-        container.add(card);
+        // PopupBaseMenuItem reports the child's natural height as its minimum.
+        // A plain BoxLayout inside ScrollView can otherwise compress wrapped
+        // labels and quota rows instead of extending the scrollable content.
+        container.add(makePopupContent(card).actor);
     }
 
     monitorCache() {
