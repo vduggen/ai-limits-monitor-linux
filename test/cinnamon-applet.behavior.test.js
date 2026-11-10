@@ -13,7 +13,7 @@ const cinnamonMetadata = JSON.parse(
   await readFile(new URL("../cinnamon/metadata.json", import.meta.url), "utf8"),
 );
 
-function makeHarness(initialSnapshot) {
+function makeHarness(initialSnapshot, { width = 1200, height = 760, scale = 1 } = {}) {
   let nextSourceId = 1;
   const sources = new Map();
   const removedSources = [];
@@ -65,6 +65,14 @@ function makeHarness(initialSnapshot) {
     add_actor(child) { this.children.push(child); }
     set_policy(horizontal, vertical) { this.policy = [horizontal, vertical]; }
 
+    get_vscroll_bar() {
+      this.adjustment ||= { value: 0, get_value() { return this.value; }, set_value(value) { this.value = value; } };
+      return { get_adjustment: () => this.adjustment };
+    }
+
+    set_text(text) { this.properties.text = text; }
+    queue_repaint() { this.repaintQueued = true; }
+
     set_size(width, height) {
       this.size = [width, height];
     }
@@ -92,6 +100,19 @@ function makeHarness(initialSnapshot) {
       this.style = style;
     }
 
+    get_theme_node() {
+      return {
+        get_max_width: () => width,
+        get_max_height: () => height,
+        get_horizontal_padding: () => this.style === "padding: 16px; spacing: 8px;" ? 32 * scale : 0,
+        get_vertical_padding: () => this.style === "padding: 16px; spacing: 8px;" ? 32 * scale : 0,
+        get_margin: () => 0,
+        get_length: () => this.style === "padding: 16px; spacing: 8px;" ? 8 * scale : 0,
+      };
+    }
+
+    get_preferred_height() { return [0, 64 * scale]; }
+
     remove_all_children() {
       this.children = [];
     }
@@ -115,7 +136,7 @@ function makeHarness(initialSnapshot) {
         add_style_class_name(styleClass) { this.styleClasses.push(styleClass); },
         set_style(style) { this.style = style; },
       };
-      this.label = { set_style(style) { this.style = style; } };
+      this.label = { set_style(style) { this.style = style; }, set_text: (text) => { this.text = text; } };
     }
 
     connect(signal, callback) {
@@ -135,7 +156,11 @@ function makeHarness(initialSnapshot) {
   class Menu {
     constructor() {
       this.items = [];
+      this.actor = new Widget();
+      this.box = new Widget();
     }
+
+    setMaxHeight() { this.sized = true; }
 
     addMenuItem(item) {
       this.items.push(item);
@@ -156,6 +181,8 @@ function makeHarness(initialSnapshot) {
       this.children = [];
       this.actor = {
         children: this.children,
+        get_theme_node: () => new Widget().get_theme_node(),
+        get_preferred_height: () => [0, 64 * scale],
         styleClasses: [],
         add_style_class_name(styleClass) { this.styleClasses.push(styleClass); },
         set_style(style) { this.style = style; },
@@ -317,6 +344,7 @@ function makeHarness(initialSnapshot) {
       this._tooltip.clutter_text = {};
     }
     destroy() { this.destroyed = true; }
+    set_text(text) { this.text = text; }
   } };
   const Util = { spawn: (command) => launchedCommands.push(command) };
   const Main = {
@@ -352,14 +380,15 @@ function makeHarness(initialSnapshot) {
     PolicyType: { NEVER: 0, AUTOMATIC: 1 },
     IconType: { FULLCOLOR: 1, SYMBOLIC: 2 },
     Align: { MIDDLE: "middle", END: "end" },
+    Side: { TOP: 0, RIGHT: 1, BOTTOM: 2, LEFT: 3 },
   };
   const ByteArray = { toString: (bytes) => new TextDecoder().decode(bytes), fromString: (text) => new TextEncoder().encode(text) };
 
   const sourceWithoutImports = appletSource.replace(/^const \w+ = imports\..*;\n/gm, "");
   const AiLimitsApplet = new Function(
-    "Applet", "PopupMenu", "Settings", "Tooltips", "Util", "Main", "GLib", "Gio", "St", "ByteArray",
+    "Applet", "PopupMenu", "Settings", "Tooltips", "Util", "Main", "GLib", "Gio", "St", "ByteArray", "global",
     `${sourceWithoutImports}\nreturn AiLimitsApplet;`,
-  )(Applet, PopupMenu, Settings, Tooltips, Util, Main, GLib, Gio, St, ByteArray);
+  )(Applet, PopupMenu, Settings, Tooltips, Util, Main, GLib, Gio, St, ByteArray, { ui_scale: scale });
   const snapshotContext = {};
   vm.runInNewContext(snapshotSource, snapshotContext);
 
@@ -536,7 +565,7 @@ test("Cinnamon panel and menu show provider errors and use the GNOME refresh act
   assert.deepEqual(harness.launchedCommands, [["python3", "/tmp/test-applet/configure.py"]]);
 
   applet.refresh();
-  assert.ok(initialTooltips.every((tooltip) => tooltip.destroyed));
+  assert.ok(initialTooltips.every((tooltip) => !tooltip.destroyed));
   const currentTooltips = [...applet.headerTooltips];
 
   applet.on_applet_removed_from_panel();
@@ -633,15 +662,20 @@ test("Cinnamon bounds the account area and identifies the age of each observatio
   snapshot.accounts[0].windows[0].observedAt = new Date(Date.now() - 10 * 60_000).toISOString();
   snapshot.accounts[1].error = "Erro longo ".repeat(1000);
   const applet = createApplet(makeHarness(snapshot));
+  applet.menu.setMaxHeight();
   const scroll = collectMenuWidgets(applet.menu.items).find(widget => widget.policy);
-  assert.match(scroll.style, /max-height: 480px/);
+  assert.equal(applet.menu.sized, true);
+  assert.match(scroll.style, /max-height: 656px; max-width: 440px/);
   assert.deepEqual(scroll.policy, [0, 1]);
-  assert.match(scroll.children[0].style, /padding-right: 12px/);
+  assert.equal(scroll.properties.overlay_scrollbars, true);
+  assert.equal(applet.menu.box.style, "padding: 16px; spacing: 8px;");
+  assert.equal(scroll.children[0].style, "spacing: 8px;");
   const accountItems = scroll.children[0].children;
   assert.equal(accountItems.length, 2);
   // Keep Cinnamon's PopupBaseMenuItem wrapper: its preferred-height contract
   // prevents ScrollView from allocating only the card's compressed minimum.
   assert.ok(accountItems.every(item => item.children.length === 1 &&
+    /margin: 0;/.test(item.style) &&
     item.children[0].properties.vertical === true &&
     /border-radius: 14px/.test(item.children[0].style)));
   assert.ok(collectMenuTexts(applet.menu.items).some(text =>
@@ -649,6 +683,27 @@ test("Cinnamon bounds the account area and identifies the age of each observatio
   assert.ok(applet.detailTooltips.some(tooltip => tooltip.text.includes("Fonte: Claude · sessão local") && tooltip.text.includes("há 10min")));
   assert.ok(findHeaderAction(applet, "Atualizar agora"));
   applet.on_applet_removed_from_panel();
+});
+
+test("Cinnamon popup follows the available monitor bounds at different UI scales", () => {
+  for (const bounds of [
+    { width: 300, height: 400, scale: 1 },
+    { width: 600, height: 800, scale: 2 },
+    { width: 240, height: 60, scale: 1 },
+  ]) {
+    const applet = createApplet(makeHarness(makeSnapshot(), bounds));
+    applet.menu.setMaxHeight();
+    const scroll = collectMenuWidgets(applet.menu.items).find(widget => widget.policy);
+    const expectedHeight = Math.max(0, Math.floor(bounds.height / bounds.scale - 104));
+    const expectedWidth = Math.min(440, Math.floor(bounds.width / bounds.scale - 32));
+    assert.equal(scroll.style, `max-height: ${expectedHeight}px; max-width: ${expectedWidth}px;`);
+    assert.match(applet.menuHeader.style, new RegExp(`max-width: ${expectedWidth}px`));
+    assert.doesNotMatch(scroll.style, /(?:^|; )(?:(?:min-)?height|width):/);
+    applet.menu.isOpen = true;
+    applet.refresh();
+    assert.equal(applet.accountScroll.style, scroll.style);
+    applet.on_applet_removed_from_panel();
+  }
 });
 
 test("Cinnamon menu distinguishes a carried reset from the Desktop percentage source", () => {
@@ -687,10 +742,85 @@ test("Cinnamon quota rows show one compact detail line and keep full diagnostics
   assert.equal(tooltip._tooltip.clutter_text.line_wrap, true);
   assert.match(row.accessible_name, /consulta SDK/);
   applet.refresh();
-  assert.equal(tooltip.destroyed, true);
+  assert.notEqual(tooltip.destroyed, true);
   const currentTooltips = [...applet.detailTooltips];
   applet.on_applet_removed_from_panel();
   assert.ok(currentTooltips.every(item => item.destroyed));
+});
+
+test("Cinnamon refresh updates an open menu without replacing tooltips, focus targets or scroll", () => {
+  const snapshot = makeSnapshot();
+  const harness = makeHarness(snapshot);
+  const applet = createApplet(harness);
+  applet.menu.isOpen = true;
+  const scroll = applet.accountScroll;
+  const adjustment = scroll.get_vscroll_bar().get_adjustment();
+  adjustment.set_value(180);
+  const headerTooltips = [...applet.headerTooltips];
+  const tooltip = applet.detailTooltips[0];
+  tooltip.visible = true;
+  const row = tooltip.actor;
+  const progress = row.children[1];
+  const configureButton = findHeaderAction(applet, "Configurar…");
+  configureButton.emit("key-focus-in");
+  const rowChildCount = row.children.length;
+  const originalItems = [...applet.menu.items];
+
+  snapshot.accounts[0].label = "Conta atualizada";
+  snapshot.accounts[0].windows[0].remainingPercent = 25;
+  snapshot.accounts[0].windows[0].usedPercent = 75;
+  snapshot.accounts[0].windows[0].source = "claude-sdk";
+  snapshot.accounts[0].windows[0].observedAt = new Date(Date.now() - 10 * 60_000).toISOString();
+  harness.setSnapshot(snapshot);
+  applet.refresh();
+  applet.refresh();
+
+  assert.equal(applet.accountScroll, scroll);
+  assert.equal(adjustment.get_value(), 180);
+  assert.deepEqual(applet.menu.items, originalItems);
+  assert.deepEqual(applet.headerTooltips, headerTooltips);
+  assert.equal(findHeaderAction(applet, "Configurar…"), configureButton);
+  assert.equal(configureButton.aiLimitsFocused, true);
+  assert.equal(applet.detailTooltips[0], tooltip);
+  assert.notEqual(tooltip.destroyed, true);
+  assert.equal(tooltip.visible, true);
+  assert.match(tooltip.text, /Claude · consulta oficial/);
+  assert.match(tooltip.text, /há 10min/);
+  assert.match(row.accessible_name, /consulta SDK/);
+  assert.equal(row.children.length, rowChildCount);
+  assert.equal(progress.fraction, 0.25);
+  assert.equal(progress.repaintQueued, true);
+  assert.ok(findMenuLabel(applet, "25% restante"));
+  assert.ok(findMenuLabel(applet, "Conta atualizada"));
+  applet.on_applet_removed_from_panel();
+  assert.equal(tooltip.destroyed, true);
+});
+
+test("Cinnamon rebuilds changed account layouts and handles empty snapshots", () => {
+  const snapshot = makeSnapshot();
+  const harness = makeHarness(snapshot);
+  const applet = createApplet(harness);
+  applet.menu.isOpen = true;
+  applet.accountScroll.get_vscroll_bar().get_adjustment().set_value(100);
+  const tooltip = applet.detailTooltips[0];
+  snapshot.accounts[0].windows.push({ ...snapshot.accounts[0].windows[0], id: "weekly", label: "Semanal" });
+  harness.setSnapshot(snapshot);
+  applet.refresh();
+  assert.equal(tooltip.destroyed, true);
+  assert.equal(applet.detailTooltips.length, 2);
+  assert.equal(applet.accountScroll.get_vscroll_bar().get_adjustment().get_value(), 100);
+  applet.refresh();
+  assert.equal(applet.detailTooltips.length, 2);
+
+  harness.setSnapshot(null);
+  applet.refresh();
+  applet.refresh();
+  assert.equal(applet.accountScroll, null);
+  assert.ok(applet.emptyMenuItem);
+  harness.setSnapshot(makeSnapshot());
+  applet.refresh();
+  assert.ok(applet.accountScroll);
+  applet.on_applet_removed_from_panel();
 });
 
 test("Cinnamon progress bars and percentages use the provider section color", () => {

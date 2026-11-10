@@ -97,7 +97,7 @@ function addStyledItem(menu, text, labelStyle) {
 
 function makePopupContent(content) {
     const item = new PopupMenu.PopupBaseMenuItem({ reactive: false });
-    item.actor.set_style("padding: 0; margin: 4px 8px; background-color: transparent;");
+    item.actor.set_style("padding: 0; margin: 0; background-color: transparent;");
     item.addActor(content, { span: -1, expand: true });
     return item;
 }
@@ -245,7 +245,7 @@ function makeProgressBar(percent, color) {
     area.connect("repaint", (drawingArea) => {
         const context = drawingArea.get_context();
         const [width, height] = drawingArea.get_surface_size();
-        const fillWidth = width * fraction;
+        const fillWidth = width * drawingArea.fraction;
         if (fillWidth > 0 && height > 0) {
             context.setSourceRGBA(red, green, blue, 1);
             if (fillWidth <= height) {
@@ -315,6 +315,15 @@ class AiLimitsApplet extends Applet.Applet {
 
         this.menuManager = new PopupMenu.PopupMenuManager(this);
         this.menu = new Applet.AppletPopupMenu(this, orientation);
+        // One outer inset for the header and cards; nested menu items must not
+        // add their own margins or leave an asymmetric scrollbar gutter.
+        this.menu.box.set_style("padding: 16px; spacing: 8px;");
+        const setMaxHeight = this.menu.setMaxHeight.bind(this.menu);
+        this.menu.setMaxHeight = () => {
+            // Let Cinnamon account for the current monitor, panels and UI scale.
+            setMaxHeight();
+            this.updateMenuSize();
+        };
         this.menuManager.addMenu(this.menu);
         this.onOpenMenuHotkeyChanged();
         this.updateIconSize();
@@ -414,15 +423,43 @@ class AiLimitsApplet extends Applet.Applet {
     }
 
     renderMenu(view) {
+        const accounts = this.snapshotView.accounts.filter((account) => account.status !== "unsupported");
+        // Reuse actors while the layout is unchanged: replacing them dismisses
+        // hovered tooltips, loses keyboard focus and resets the scroll adjustment.
+        const structure = JSON.stringify([Boolean(view.emptyText), accounts.map((account) => [
+            account.id, account.provider, Boolean(account.plan),
+            Boolean(account.email || ["statusLine", "desktop", "oauth"].includes(account.source) || account.provider === "codex"),
+            Boolean(account.error), Boolean(Number.isFinite(Date.parse(account.collection?.nextRetryAt))),
+            account.windows.map((window) => window.id),
+        ])]);
+        if (this.menuStructure === structure) {
+            this.menuStatusLabel.set_text(view.statusText);
+            if (this.emptyMenuItem) this.emptyMenuItem.label.set_text(view.emptyText);
+            accounts.forEach((account, index) => this.renderAccountCard(
+                account, this.accountCards[index].providerLabel, this.accountCards[index].providerColor,
+                null, this.accountCards[index],
+            ));
+            this.setRefreshButtonSensitive(!this.pendingRefresh);
+            this.restartButton.reactive = !this.restartingService;
+            this.restartButton.can_focus = !this.restartingService;
+            updateHeaderActionStyle(this.restartButton);
+            return;
+        }
+        const scrollPosition = this.accountScroll?.get_vscroll_bar().get_adjustment().get_value() || 0;
         this.clearHeaderTooltips();
         this.menu.removeAll();
+        this.accountScroll = null;
+        this.menuStructure = structure;
+        this.accountCards = [];
+        this.emptyMenuItem = null;
 
         const header = new St.BoxLayout({ vertical: false, x_expand: true });
-        header.set_style("spacing: 12px; padding: 4px 8px 8px; max-width: 440px;");
+        header.set_style("spacing: 12px; padding: 0 0 8px; max-width: 440px;");
         const heading = new St.BoxLayout({ vertical: true, x_expand: true });
         heading.set_style("spacing: 3px;");
         heading.add(makeLabel("AI Limits", "color: #ffffff; font-size: 1.12em; font-weight: 700;"));
-        heading.add(makeLabel(view.statusText, "color: #dce1e7; font-size: 0.9em; max-width: 350px;"));
+        this.menuStatusLabel = makeLabel(view.statusText, "color: #dce1e7; font-size: 0.9em; max-width: 350px;");
+        heading.add(this.menuStatusLabel);
         header.add(heading);
 
         const actions = new St.BoxLayout({ vertical: false });
@@ -456,16 +493,18 @@ class AiLimitsApplet extends Applet.Applet {
             "Reiniciar serviço de coleta",
             () => this.restartService(),
         );
+        this.restartButton = restartButton;
         restartButton.reactive = !this.restartingService;
         restartButton.can_focus = !this.restartingService;
         updateHeaderActionStyle(restartButton);
         actions.add(restartButton, { x_align: St.Align.MIDDLE, x_fill: false, y_align: St.Align.MIDDLE, y_fill: false });
         this.headerTooltips.push(restartButton.aiLimitsTooltip);
         header.add(actions);
-        addPopupContent(this.menu, header);
+        this.menuHeader = header;
+        this.menuHeaderItem = addPopupContent(this.menu, header);
 
         if (view.emptyText) {
-            addStyledItem(
+            this.emptyMenuItem = addStyledItem(
                 this.menu,
                 view.emptyText,
                 "color: #e1e5e9;",
@@ -474,27 +513,51 @@ class AiLimitsApplet extends Applet.Applet {
             const providerLabels = { claude: "Claude", codex: "Codex" };
             const providerColors = { claude: "#f47b53", codex: "#10a37f" };
             const scroll = new St.ScrollView({ x_expand: true, reactive: true, overlay_scrollbars: true });
-            const monitorHeight = Main.layoutManager.primaryMonitor?.height || 768;
-            scroll.set_style(`max-height: ${Math.max(120, Math.floor(monitorHeight * 0.6))}px;`);
+            this.accountScroll = scroll;
             scroll.set_policy(St.PolicyType.NEVER, St.PolicyType.AUTOMATIC);
             const cards = new St.BoxLayout({ vertical: true, x_expand: true });
-            // Leave a gutter for the overlay scrollbar instead of painting it
-            // against the card borders.
-            cards.set_style("padding-right: 12px;");
+            // Overlay mode keeps the viewport full-width: St can reserve a
+            // scrollbar column even when an automatic scrollbar is hidden.
+            cards.set_style("spacing: 8px;");
             scroll.add_actor(cards);
-            addPopupContent(this.menu, scroll);
-            this.snapshotView.accounts
-                .filter((account) => account.status !== "unsupported")
-                .forEach((account) => {
-                    this.renderAccountCard(
-                        account,
-                        providerLabels[account.provider],
-                        providerColors[account.provider],
-                        cards,
-                    );
+            this.accountScrollItem = addPopupContent(this.menu, scroll);
+            accounts.forEach((account) => {
+                this.accountCards.push(this.renderAccountCard(
+                    account,
+                    providerLabels[account.provider],
+                    providerColors[account.provider],
+                    cards,
+                ));
             });
         }
+        if (this.menu.isOpen) this.menu.setMaxHeight();
+        if (this.accountScroll && scrollPosition)
+            this.accountScroll.get_vscroll_bar().get_adjustment().set_value(scrollPosition);
+    }
 
+    updateMenuSize() {
+        if (!this.menuHeader) return;
+        const scale = global.ui_scale;
+        const menuTheme = this.menu.actor.get_theme_node();
+        const boxTheme = this.menu.box.get_theme_node();
+        const headerTheme = this.menuHeaderItem.actor.get_theme_node();
+        const horizontalInsets = menuTheme.get_horizontal_padding() + boxTheme.get_horizontal_padding()
+            + headerTheme.get_horizontal_padding()
+            + headerTheme.get_margin(St.Side.LEFT) + headerTheme.get_margin(St.Side.RIGHT);
+        const width = Math.max(0, menuTheme.get_max_width() - horizontalInsets);
+        const maxWidth = Math.min(440, Math.floor(width / scale));
+        this.menuHeader.set_style(`spacing: 12px; padding: 0 0 8px; max-width: ${maxWidth}px;`);
+        if (!this.accountScroll) return;
+        const scrollTheme = this.accountScrollItem.actor.get_theme_node();
+        const [, headerHeight] = this.menuHeaderItem.actor.get_preferred_height(width);
+        const verticalInsets = menuTheme.get_vertical_padding() + boxTheme.get_vertical_padding()
+            + boxTheme.get_length("spacing")
+            + headerHeight + headerTheme.get_margin(St.Side.TOP) + headerTheme.get_margin(St.Side.BOTTOM)
+            + scrollTheme.get_vertical_padding()
+            + scrollTheme.get_margin(St.Side.TOP) + scrollTheme.get_margin(St.Side.BOTTOM);
+        const maxHeight = Math.max(0, Math.floor((menuTheme.get_max_height() - verticalInsets) / scale));
+        // Maximums, not fixed dimensions: small menus keep their natural size.
+        this.accountScroll.set_style(`max-height: ${maxHeight}px; max-width: ${maxWidth}px;`);
     }
 
     clearHeaderTooltips() {
@@ -516,8 +579,21 @@ class AiLimitsApplet extends Applet.Applet {
         updateHeaderActionStyle(this.refreshButton);
     }
 
-    renderAccountCard(account, providerLabel, providerColor, container) {
-        const card = new St.BoxLayout({ vertical: true, x_expand: true });
+    renderAccountCard(account, providerLabel, providerColor, container, existing = null) {
+        const widgets = existing || { labels: [], rows: [], providerLabel, providerColor };
+        let labelIndex = 0;
+        // The menu structure key guarantees identical label/row order on updates.
+        const label = (text, style, properties) => {
+            const index = labelIndex++;
+            if (!existing) widgets.labels[index] = makeLabel(text, style, properties);
+            else {
+                widgets.labels[index].set_text(text);
+                widgets.labels[index].set_style(style);
+            }
+            return widgets.labels[index];
+        };
+        const card = widgets.card || new St.BoxLayout({ vertical: true, x_expand: true });
+        widgets.card = card;
         card.set_style([
             "spacing: 9px;",
             "padding: 12px;",
@@ -527,20 +603,27 @@ class AiLimitsApplet extends Applet.Applet {
             "background-color: rgba(128, 128, 128, 0.12);",
         ].join(" "));
 
-        const heading = new St.BoxLayout({ vertical: false, x_expand: true });
+        const heading = widgets.heading || new St.BoxLayout({ vertical: false, x_expand: true });
+        widgets.heading = heading;
         heading.set_style("spacing: 8px;");
-        heading.add(makeLabel("●", `color: ${providerColor}; font-size: 14px;`));
-        heading.add(makeLabel(providerLabel, "color: #f7f8fa; font-size: 1.05em; font-weight: 700;"));
-        heading.add(new St.Widget({ x_expand: true }));
+        const dot = label("●", `color: ${providerColor}; font-size: 14px;`);
+        const provider = label(providerLabel, "color: #f7f8fa; font-size: 1.05em; font-weight: 700;");
+        if (!existing) {
+            heading.add(dot);
+            heading.add(provider);
+            heading.add(new St.Widget({ x_expand: true }));
+        }
         if (account.plan) {
-            heading.add(makeLabel(
+            const plan = label(
                 account.plan,
                 "color: #f1f3f5; font-size: 0.85em; padding: 3px 8px; border-radius: 12px; background-color: rgba(128, 128, 128, 0.24);",
-            ));
+            );
+            if (!existing) heading.add(plan);
         }
-        card.add(heading);
+        if (!existing) card.add(heading);
 
-        card.add(makeLabel(account.label, "color: #f5f6f7; font-size: 0.92em; font-weight: 600;"));
+        const accountLabel = label(account.label, "color: #f5f6f7; font-size: 0.92em; font-weight: 600;");
+        if (!existing) card.add(accountLabel);
         const displayMode = account.displayMode === "used" ? "used" : "remaining";
         const sourceLabel = account.source === "statusLine"
             ? "status line local"
@@ -559,14 +642,17 @@ class AiLimitsApplet extends Applet.Applet {
             account.email,
             sourceMetadata,
         ].filter(Boolean).join(" · ");
-        if (metadata)
-            card.add(makeLabel(metadata, "color: #dce2e8; font-size: 0.85em;"));
+        if (metadata) {
+            const metadataLabel = label(metadata, "color: #dce2e8; font-size: 0.85em;");
+            if (!existing) card.add(metadataLabel);
+        }
 
         if (account.error) {
-            card.add(makeLabel(
+            const errorLabel = label(
                 account.error,
                 "color: #e97870; font-size: 0.92em; max-width: 410px;",
-            ));
+            );
+            if (!existing) card.add(errorLabel);
         }
         if (account.collection?.nextRetryAt) {
             const retryTime = Date.parse(account.collection.nextRetryAt);
@@ -575,28 +661,42 @@ class AiLimitsApplet extends Applet.Applet {
                 const message = remaining > 0
                     ? `Nova tentativa em ${formatDuration(remaining / 60000)}. O refresh respeita esta espera.`
                     : "Nova tentativa pendente. Use Atualizar agora ou verifique o serviço.";
-                card.add(makeLabel(message, "color: #e1e5e9; font-size: 0.85em; max-width: 410px;"));
+                const retryLabel = label(message, "color: #e1e5e9; font-size: 0.85em; max-width: 410px;");
+                if (!existing) card.add(retryLabel);
             }
         }
         if (account.windows.length === 0 && !account.error) {
-            card.add(makeLabel("Esta conta não reportou limites.", "color: #e1e5e9; font-size: 0.9em;"));
+            const emptyLabel = label("Esta conta não reportou limites.", "color: #e1e5e9; font-size: 0.9em;");
+            if (!existing) card.add(emptyLabel);
         } else if (account.windows.length > 0) {
-            account.windows.forEach((window) => {
+            account.windows.forEach((window, index) => {
                 const percent = displayMode === "used" ? window.usedPercent : window.remainingPercent;
                 const duration = formatWindowDuration(window);
                 const windowTitle = duration ? `${window.label} (${duration})` : window.label;
-                const row = new St.BoxLayout({ vertical: true, x_expand: true, reactive: true, can_focus: true });
+                const rowWidgets = widgets.rows[index] || {};
+                widgets.rows[index] = rowWidgets;
+                const row = rowWidgets.row || new St.BoxLayout({ vertical: true, x_expand: true, reactive: true, can_focus: true });
+                rowWidgets.row = row;
                 row.set_style("spacing: 6px; padding-top: 6px;");
 
-                const labels = new St.BoxLayout({ vertical: false, x_expand: true });
+                const labels = rowWidgets.labels || new St.BoxLayout({ vertical: false, x_expand: true });
+                rowWidgets.labels = labels;
                 labels.set_style("spacing: 8px;");
-                labels.add(makeLabel(windowTitle, "color: #f1f3f5; font-size: 0.95em;", { x_expand: true }));
-                labels.add(makeLabel(
+                const titleLabel = label(windowTitle, "color: #f1f3f5; font-size: 0.95em;", { x_expand: true });
+                const percentLabel = label(
                     `${percent}% ${displayMode === "used" ? "usado" : "restante"}${account.stale ? " · antigo" : ""}`,
                     `font-weight: 700; color: ${providerColor};`,
-                ));
-                row.add(labels);
-                row.add(makeProgressBar(percent, providerColor));
+                );
+                if (!existing) {
+                    labels.add(titleLabel);
+                    labels.add(percentLabel);
+                    row.add(labels);
+                    rowWidgets.progress = makeProgressBar(percent, providerColor);
+                    row.add(rowWidgets.progress);
+                } else {
+                    rowWidgets.progress.fraction = Math.max(0, Math.min(100, percent)) / 100;
+                    rowWidgets.progress.queue_repaint();
+                }
                 const observation = this.snapshotModel.buildWindowView(window, displayMode);
                 const hasObservation = Boolean(window.observedAt || window.sourceEventAt);
                 const resetSource = window.resetSource === "oauth"
@@ -616,8 +716,9 @@ class AiLimitsApplet extends Applet.Applet {
                 const ageText = hasObservation && !expired
                     ? ` · ${oldReading ? "último dado" : "leitura"} ${observation.ageText.replace(/^Observado /, "")}`
                     : "";
-                row.add(makeLabel(resetText + ageText,
-                    `color: ${oldReading || expired ? "#e5b566" : "#b8c0c8"}; font-size: 0.82em;`));
+                const resetLabel = label(resetText + ageText,
+                    `color: ${oldReading || expired ? "#e5b566" : "#b8c0c8"}; font-size: 0.82em;`);
+                if (!existing) row.add(resetLabel);
                 const sourceNames = {
                     "claude-statusline": "Claude · sessão local",
                     "claude-desktop": "Claude Desktop",
@@ -638,15 +739,19 @@ class AiLimitsApplet extends Applet.Applet {
                 if (expired) details.push("Reset vencido · aguardando confirmação");
                 else if (oldReading) details.push("Dado antigo · pode não refletir o uso atual");
                 row.accessible_name = observation.accessibleText;
-                this.detailTooltips.push(makeQuotaTooltip(row, details.join("\n")));
-                card.add(row);
+                if (!existing) {
+                    rowWidgets.tooltip = makeQuotaTooltip(row, details.join("\n"));
+                    this.detailTooltips.push(rowWidgets.tooltip);
+                    card.add(row);
+                } else rowWidgets.tooltip.set_text(details.join("\n"));
             });
         }
 
         // PopupBaseMenuItem reports the child's natural height as its minimum.
         // A plain BoxLayout inside ScrollView can otherwise compress wrapped
         // labels and quota rows instead of extending the scrollable content.
-        container.add(makePopupContent(card).actor);
+        if (!existing) container.add(makePopupContent(card).actor);
+        return widgets;
     }
 
     monitorCache() {
