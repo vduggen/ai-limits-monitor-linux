@@ -46,9 +46,14 @@ function copyRateLimits(value) {
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
-function renderStatusLine(rateLimits) {
-  if (!rateLimits) return "";
+function renderStatusLine(input) {
+  const rateLimits = input?.rate_limits;
   const values = [];
+  const model = input?.model?.display_name;
+  const dir = input?.workspace?.current_dir ?? input?.cwd;
+  if (typeof dir === "string" && dir) values.push(path.basename(dir) || dir);
+  if (typeof model === "string" && model) values.push(model);
+  if (!rateLimits) return values.join(" · ") || "Claude Code";
   if (Number.isFinite(rateLimits.five_hour?.used_percentage)) {
     values.push(`5h ${Math.round(rateLimits.five_hour.used_percentage)}%`);
   }
@@ -132,7 +137,7 @@ async function main() {
     if (result.exitCode !== 0) process.exitCode = result.exitCode;
     return;
   }
-  process.stdout.write(renderStatusLine(input?.rate_limits));
+  process.stdout.write(renderStatusLine(input));
 }
 
 main().catch(() => {
