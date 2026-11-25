@@ -501,12 +501,19 @@ class AiLimitsApplet extends Applet.Applet {
         const menuTheme = this.menu.actor.get_theme_node();
         const boxTheme = this.menu.box.get_theme_node();
         const headerTheme = this.menuHeaderItem.actor.get_theme_node();
-        const horizontalInsets = menuTheme.get_horizontal_padding() + boxTheme.get_horizontal_padding()
+        // Space between the popup's visible edge and the card list.
+        const chromeWidth = menuTheme.get_horizontal_padding() + boxTheme.get_horizontal_padding()
             + headerTheme.get_horizontal_padding()
-            + headerTheme.get_margin(St.Side.LEFT) + headerTheme.get_margin(St.Side.RIGHT)
-            + 10 * scale;
-        const width = Math.max(0, menuTheme.get_max_width() - horizontalInsets);
-        const maxWidth = Math.min(440, Math.floor(width / scale));
+            + headerTheme.get_margin(St.Side.LEFT) + headerTheme.get_margin(St.Side.RIGHT);
+        const width = Math.max(0, menuTheme.get_max_width() - chromeWidth);
+        // Card list as wide as the applet that opens it, within the limits
+        // shared with GNOME; the header keeps the 10px scrollbar gutter.
+        const contentWidth = this.snapshotModel.popupContentWidth({
+            indicatorWidth: this.actor.width / scale,
+            chromeWidth: chromeWidth / scale,
+            availableWidth: width / scale,
+        });
+        const maxWidth = Math.max(0, contentWidth - 10);
         this.menuHeader.set_style(`spacing: 12px; padding: 0 10px 8px 0; max-width: ${maxWidth}px;`);
         if (!this.accountScroll) return;
         const scrollTheme = this.accountScrollItem.actor.get_theme_node();
@@ -522,8 +529,8 @@ class AiLimitsApplet extends Applet.Applet {
         const workArea = global.workspace_manager.get_active_workspace().get_work_area_for_monitor(monitor.index);
         const availableHeight = Math.min(menuTheme.get_max_height(), workArea.height);
         const maxHeight = Math.max(0, Math.floor((availableHeight - verticalInsets) / scale));
-        // Maximums, not fixed dimensions: small menus keep their natural size.
-        this.accountScroll.set_style(`max-height: ${maxHeight}px; max-width: ${maxWidth + 10}px;`);
+        // The height is a maximum, so short lists keep their natural height.
+        this.accountScroll.set_style(`max-height: ${maxHeight}px; min-width: ${contentWidth}px; max-width: ${contentWidth}px;`);
     }
 
     clearHeaderTooltips() {
@@ -564,7 +571,6 @@ class AiLimitsApplet extends Applet.Applet {
         card.set_style([
             "spacing: 9px;",
             "padding: 12px;",
-            "max-width: 440px;",
             "border-radius: 14px;",
             "border: 1px solid rgba(128, 128, 128, 0.24);",
             "background-color: rgba(128, 128, 128, 0.12);",
@@ -599,12 +605,12 @@ class AiLimitsApplet extends Applet.Applet {
         if (view.error) {
             const errorLabel = label(
                 view.error,
-                "color: #e97870; font-size: 0.92em; max-width: 410px;",
+                "color: #e97870; font-size: 0.92em;",
             );
             if (!existing) card.add(errorLabel);
         }
         if (view.retryText) {
-            const retryLabel = label(view.retryText, "color: #e1e5e9; font-size: 0.85em; max-width: 410px;");
+            const retryLabel = label(view.retryText, "color: #e1e5e9; font-size: 0.85em;");
             if (!existing) card.add(retryLabel);
         }
         if (view.emptyText) {

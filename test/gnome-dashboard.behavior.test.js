@@ -11,7 +11,7 @@ const Main = { uiGroup: { add_child(child) { tooltips.push(child); }, set_child_
   layoutManager: { findMonitorForActor: () => ({ x: 0, y: 0, width: 1366, height: 768 }) } };
 const Clutter = { ActorAlign: { CENTER: 'center' } };
 const Pango = { EllipsizeMode: { NONE: 0 } };
-const { Dashboard, AccountCard, popupContentWidth, popupSourceAlignment } = new Function('St', 'PopupMenu', 'Main', 'Pango', 'Clutter', `${source.replace(/^import .*;\n/gm, '').replaceAll('export class ', 'class ').replaceAll('export function ', 'function ').replaceAll('export const ', 'const ')}; return {Dashboard, AccountCard, popupContentWidth, popupSourceAlignment};`)(St, PopupMenu, Main, Pango, Clutter);
+const { Dashboard, AccountCard, popupSourceAlignment } = new Function('St', 'PopupMenu', 'Main', 'Pango', 'Clutter', `${source.replace(/^import .*;\n/gm, '').replaceAll('export class ', 'class ').replaceAll('export function ', 'function ').replaceAll('export const ', 'const ')}; return {Dashboard, AccountCard, popupSourceAlignment};`)(St, PopupMenu, Main, Pango, Clutter);
 const now = Date.parse('2026-10-21T12:00:00Z');
 const account = { id: 'a', label: 'Claude pessoal', provider: 'claude', status: 'error', error: '429', displayMode: 'remaining',
   plan: 'max', email: 'pessoa@example.test', source: 'statusLine', checkedAt: '2026-10-21T11:57:00Z',
@@ -124,14 +124,6 @@ test('header actions stay 32px squares and their tooltips open above the menu, o
   button.hover = false; button.emit('notify::hover');
   assert.equal(tooltip.visible, false);
   dashboard.destroy();
-});
-
-test('popup follows the indicator width between the Cinnamon size and the limit', () => {
-  const size = (indicatorWidth, availableWidth = 1800) => popupContentWidth({ indicatorWidth, chromeWidth: 32, availableWidth });
-  assert.equal(size(300), 450);
-  assert.equal(size(537), 505);
-  assert.equal(size(1200), 600);
-  assert.equal(size(1200, 400), 400);
 });
 
 test('dashboard size applies to the card list and keeps the header on the cards edge', () => {

@@ -676,7 +676,7 @@ test("Cinnamon bounds the account area and identifies the age of each observatio
   applet.menu.setMaxHeight();
   const scroll = collectMenuWidgets(applet.menu.items).find(widget => widget.policy);
   assert.equal(applet.menu.sized, true);
-  assert.match(scroll.style, /max-height: 656px; max-width: 450px/);
+  assert.match(scroll.style, /max-height: 656px; min-width: 450px; max-width: 450px/);
   assert.deepEqual(scroll.policy, [0, 1]);
   assert.equal(scroll.properties.overlay_scrollbars, true);
   assert.equal(applet.menu.box.style, "padding: 16px 6px 16px 16px; spacing: 8px;");
@@ -706,13 +706,25 @@ test("Cinnamon popup follows the available monitor bounds at different UI scales
     applet.menu.setMaxHeight();
     const scroll = collectMenuWidgets(applet.menu.items).find(widget => widget.policy);
     const expectedHeight = Math.max(0, Math.floor(bounds.height / bounds.scale - 104));
-    const expectedWidth = Math.min(440, Math.floor(bounds.width / bounds.scale - 32));
-    assert.equal(scroll.style, `max-height: ${expectedHeight}px; max-width: ${expectedWidth + 10}px;`);
-    assert.match(applet.menuHeader.style, new RegExp(`max-width: ${expectedWidth}px`));
+    const contentWidth = Math.min(450, Math.floor(bounds.width / bounds.scale - 22));
+    assert.equal(scroll.style, `max-height: ${expectedHeight}px; min-width: ${contentWidth}px; max-width: ${contentWidth}px;`);
+    assert.match(applet.menuHeader.style, new RegExp(`max-width: ${contentWidth - 10}px`));
     assert.doesNotMatch(scroll.style, /(?:^|; )(?:(?:min-)?height|width):/);
     applet.menu.isOpen = true;
     applet.refresh();
     assert.equal(applet.accountScroll.style, scroll.style);
+    applet.on_applet_removed_from_panel();
+  }
+});
+
+test("Cinnamon popup is as wide as the applet that opens it, up to the shared limit", () => {
+  for (const [appletWidth, contentWidth] of [[300, 450], [537, 515], [1200, 600]]) {
+    const applet = createApplet(makeHarness(makeSnapshot(), { width: 1920, height: 1080, scale: 1 }));
+    applet.actor.width = appletWidth;
+    applet.menu.setMaxHeight();
+    // The applet stub's popup adds 22px of insets around the card list.
+    assert.match(applet.accountScroll.style, new RegExp(`min-width: ${contentWidth}px; max-width: ${contentWidth}px;`));
+    assert.match(applet.menuHeader.style, new RegExp(`max-width: ${contentWidth - 10}px`));
     applet.on_applet_removed_from_panel();
   }
 });

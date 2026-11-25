@@ -164,3 +164,13 @@ test("menuAccountsFollowThePanelOrderAndSkipUnsupported", () => {
     Array.from(scriptSnapshot.buildPanelLabels(view).entries, (entry) => entry.provider),
   );
 });
+
+test("popupContentWidthFollowsTheIndicatorBetweenTheSharedLimits", () => {
+  const width = (indicatorWidth, availableWidth = 1800) =>
+    scriptSnapshot.popupContentWidth({ indicatorWidth, chromeWidth: 32, availableWidth });
+  assert.equal(width(300), 450);
+  assert.equal(width(537), 505);
+  assert.equal(width(1200), 600);
+  assert.equal(width(1200, 400), 400);
+  assert.equal(width(undefined), 450);
+});

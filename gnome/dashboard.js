@@ -102,16 +102,6 @@ function setActionSensitive(button, sensitive) {
     button.sensitive = sensitive;
 }
 
-// Card list width (cards plus the scrollbar gutter): the Cinnamon size at
-// least, the indicator width when wider, never above the limit or the screen.
-export const MIN_CONTENT_WIDTH = 450;
-export const MAX_CONTENT_WIDTH = 600;
-
-export function popupContentWidth({indicatorWidth, chromeWidth, availableWidth}) {
-    const width = Math.max(MIN_CONTENT_WIDTH, Math.min(indicatorWidth - chromeWidth, MAX_CONTENT_WIDTH));
-    return Math.floor(Math.max(120, Math.min(width, availableWidth)));
-}
-
 // Source alignment that makes the popup's visible edge start at the
 // indicator's left edge. It reproduces how GNOME's BoxPointer places a popup
 // with arrow alignment 0 (boxpointer.js, _reposition): the box starts half

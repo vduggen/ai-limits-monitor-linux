@@ -9,5 +9,6 @@ export const {
   buildWindowView,
   formatSnapshotAge,
   formatReset,
+  popupContentWidth,
   windowObservationState,
 } = globalThis.AiLimitsSnapshot;

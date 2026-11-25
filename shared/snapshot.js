@@ -689,6 +689,20 @@ var AiLimitsSnapshot = (function () {
         return labels;
     }
 
+    // Width of the popup's card list (cards plus the 10px scrollbar gutter),
+    // shared by the GNOME and Cinnamon popups: as wide as the panel indicator
+    // that opens it, minus the popup's own insets, with the original 450px as
+    // the minimum, 600px as the limit and never more than the available space.
+    var MIN_POPUP_CONTENT_WIDTH = 450;
+    var MAX_POPUP_CONTENT_WIDTH = 600;
+
+    function popupContentWidth(geometry) {
+        var indicatorWidth = Number(geometry.indicatorWidth) || 0;
+        var width = Math.max(MIN_POPUP_CONTENT_WIDTH,
+            Math.min(indicatorWidth - geometry.chromeWidth, MAX_POPUP_CONTENT_WIDTH));
+        return Math.max(0, Math.floor(Math.min(width, geometry.availableWidth)));
+    }
+
     return {
         buildAccountCardView: buildAccountCardView,
         buildMenuAccounts: buildMenuAccounts,
@@ -698,6 +712,7 @@ var AiLimitsSnapshot = (function () {
         buildWindowView: buildWindowView,
         formatSnapshotAge: formatSnapshotAge,
         formatReset: formatReset,
+        popupContentWidth: popupContentWidth,
         windowObservationState: windowObservationState,
     };
 })();

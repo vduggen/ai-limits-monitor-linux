@@ -200,7 +200,6 @@ function makeHarness() {
     "globalThis",
     "Dashboard",
     "attachTooltip",
-    "popupContentWidth",
     "popupSourceAlignment",
     "submitRefreshRequest",
     "readRefreshResult",
@@ -235,7 +234,6 @@ function makeHarness() {
       update(view, accounts) { this.updated = {view, accounts}; } updateTime() {} destroy() {}
     },
     (actor, text) => { actor.tooltipText = text; },
-    () => 450,
     (geometry) => { anchors.push(geometry); return 0.25; },
     (root, request, callback) => requests.push({root, request, callback}),
     (root, id) => Promise.resolve(refreshResults.get(id) ?? null),

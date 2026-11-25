@@ -42,8 +42,9 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
   espaço reservado à direita dos cartões, independentemente do tema.
 - O popup GNOME abre alinhado à borda esquerda do indicador, como no Cinnamon,
   sem sair do monitor.
-- O popup GNOME acompanha a largura do indicador, com o tamanho do Cinnamon como
-  mínimo e 600 px de lista de cartões como limite.
+- Os popups GNOME e Cinnamon acompanham a largura do indicador que os abre, com
+  450 px de lista de cartões como mínimo e 600 px como limite; o cálculo fica em
+  `popupContentWidth`, no modelo compartilhado.
 - Identifica leituras provenientes do Claude Desktop no menu de contas.
 - O configurador GTK verifica atualizações do clone e, após confirmação, aplica
   fast-forward seguro, compila e sincroniza somente a extensão GNOME que o abriu.
@@ -73,6 +74,8 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
   realce visual ao passar o mouse ou receber foco pelo teclado.
 - O texto do popup ganha mais contraste, e os ícones clareiam no hover e no foco.
 - Um atalho global editável abre/fecha o popup; o padrão é `Super+Alt+A`.
+- O popup acompanha a largura do applet no painel, nos mesmos limites do GNOME, e
+  os textos dos cartões ocupam a largura disponível.
 
 ## Cinnamon 0.2.1 — 2026-10-26
 
