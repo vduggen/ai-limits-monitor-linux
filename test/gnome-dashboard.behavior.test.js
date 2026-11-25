@@ -6,9 +6,12 @@ import * as snapshotApi from '../test-support/snapshot-model.js';
 const { buildMenuView, buildSnapshotView } = snapshotApi;
 const source = await readFile(new URL('../gnome/dashboard.js', import.meta.url), 'utf8');
 const tooltips = [];
-const Main = { uiGroup: { add_child(child) { tooltips.push(child); } } };
+const raised = [];
+const Main = { uiGroup: { add_child(child) { tooltips.push(child); }, set_child_above_sibling(child) { raised.push(child); } },
+  layoutManager: { findMonitorForActor: () => ({ x: 0, y: 0, width: 1366, height: 768 }) } };
+const Clutter = { ActorAlign: { CENTER: 'center' } };
 const Pango = { EllipsizeMode: { NONE: 0 } };
-const { Dashboard, AccountCard } = new Function('St', 'PopupMenu', 'Main', 'Pango', `${source.replace(/^import .*;\n/gm, '').replaceAll('export class ', 'class ').replaceAll('export function ', 'function ')}; return {Dashboard, AccountCard};`)(St, PopupMenu, Main, Pango);
+const { Dashboard, AccountCard } = new Function('St', 'PopupMenu', 'Main', 'Pango', 'Clutter', `${source.replace(/^import .*;\n/gm, '').replaceAll('export class ', 'class ').replaceAll('export function ', 'function ')}; return {Dashboard, AccountCard};`)(St, PopupMenu, Main, Pango, Clutter);
 const now = Date.parse('2026-10-21T12:00:00Z');
 const account = { id: 'a', label: 'Claude pessoal', provider: 'claude', status: 'error', error: '429', displayMode: 'remaining',
   plan: 'max', email: 'pessoa@example.test', source: 'statusLine', checkedAt: '2026-10-21T11:57:00Z',
@@ -101,4 +104,24 @@ test('dashboard header has the Cinnamon actions and cards reconcile by identity'
   assert.equal(dashboard.empty.text, 'Nenhum dado no cache.');
   assert.equal(dashboard.scroll.visible, false);
   dashboard.destroy(); assert.equal(dashboard.cards.size, 0);
+});
+
+test('header actions stay 32px squares and their tooltips open above the menu, on screen', () => {
+  const menu = { addMenuItem() {} };
+  const dashboard = new Dashboard(menu, { onConfigure() {}, onRefresh() {}, onRestart() {} }, snapshotApi);
+  const button = dashboard.restartButton;
+  assert.equal(button.x_align, 'center');
+  assert.equal(button.y_align, 'center');
+  const tooltip = tooltips.at(-1);
+  assert.equal(tooltip.text, 'Reiniciar serviço de coleta');
+  button.width = 32; button.height = 32; tooltip.width = 180;
+  button.get_transformed_position = () => [1330, 40];
+  tooltip.set_position = (x, y) => { tooltip.position = [x, y]; };
+  button.hover = true; button.emit('notify::hover');
+  assert.equal(tooltip.visible, true);
+  assert.equal(raised.at(-1), tooltip);
+  assert.deepEqual(tooltip.position, [1366 - 180 - 8, 80]);
+  button.hover = false; button.emit('notify::hover');
+  assert.equal(tooltip.visible, false);
+  dashboard.destroy();
 });

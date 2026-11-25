@@ -1,3 +1,4 @@
+import Clutter from 'gi://Clutter';
 import Pango from 'gi://Pango';
 import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -28,10 +29,18 @@ export function attachTooltip(actor, text) {
     Main.uiGroup.add_child(tooltip);
     actor.connect('notify::hover', () => {
         tooltip.visible = actor.hover;
-        if (actor.hover) {
-            const [x, y] = actor.get_transformed_position();
-            tooltip.set_position(x, y + actor.height + 8);
-        }
+        if (!actor.hover)
+            return;
+        // The open menu is added to uiGroup after the tooltip; raise the
+        // tooltip so it is not drawn behind the popup.
+        Main.uiGroup.set_child_above_sibling(tooltip, null);
+        const [x, y] = actor.get_transformed_position();
+        const centeredX = x + (actor.width - tooltip.width) / 2;
+        // Keep the tooltip inside the monitor, near the panel's right edge too.
+        const monitor = Main.layoutManager.findMonitorForActor(actor);
+        const maxX = monitor ? monitor.x + monitor.width - tooltip.width - 8 : centeredX;
+        const minX = monitor ? monitor.x + 8 : centeredX;
+        tooltip.set_position(Math.floor(Math.max(minX, Math.min(centeredX, maxX))), Math.floor(y + actor.height + 8));
     });
     actor.connect('destroy', () => tooltip.destroy());
     return tooltip;
@@ -42,6 +51,10 @@ function makeHeaderAction(iconName, accessibleName, callback) {
         style_class: 'ai-limits-header-action',
         can_focus: true,
         track_hover: true,
+        // Without explicit alignment the header stretches the button to its
+        // full height, and the hover background becomes a tall rectangle.
+        x_align: Clutter.ActorAlign.CENTER,
+        y_align: Clutter.ActorAlign.CENTER,
         accessible_name: accessibleName,
         child: new St.Icon({icon_name: iconName, icon_size: 16}),
     });
@@ -188,7 +201,7 @@ export class Dashboard {
         makeLabel(heading, 'ai-limits-heading-title', {text: 'AI Limits'});
         this.status = makeLabel(heading, 'ai-limits-status');
         header.add_child(heading);
-        const actions = new St.BoxLayout({style_class: 'ai-limits-header-actions'});
+        const actions = new St.BoxLayout({style_class: 'ai-limits-header-actions', y_align: Clutter.ActorAlign.CENTER});
         this.configureButton = makeHeaderAction('preferences-system-symbolic', 'Configurar…', onConfigure);
         this.refreshButton = makeHeaderAction('view-refresh-symbolic', 'Atualizar agora', onRefresh);
         this.restartButton = makeHeaderAction('system-reboot-symbolic', 'Reiniciar serviço de coleta', onRestart);

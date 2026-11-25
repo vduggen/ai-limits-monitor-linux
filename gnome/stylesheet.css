@@ -18,6 +18,9 @@
 .ai-limits-header-action:insensitive { color: #8b9299; background-color: rgba(128, 128, 128, 0.08); }
 
 .ai-limits-cards { spacing: 8px; padding-right: 10px; }
+/* Themes give scrollbars their own margins (WhiteSur: 6px + 8px), which made the
+   overlay scrollbar cover the cards. Fit it inside the 10px gutter instead. */
+.ai-limits-scroll StScrollBar { margin: 0; padding: 0 0 0 4px; min-width: 6px; width: 6px; }
 .ai-limits-card { spacing: 9px; padding: 12px; max-width: 440px; border-radius: 14px; border: 1px solid rgba(128, 128, 128, 0.24); background-color: rgba(128, 128, 128, 0.12); }
 .ai-limits-card-heading { spacing: 8px; }
 .ai-limits-provider-dot { font-size: 14px; }
