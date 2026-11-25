@@ -215,8 +215,32 @@ function formatWindowDuration(window) {
 function formatCompactReset(resetsAt) {
     const timestamp = Date.parse(resetsAt);
     if (!Number.isFinite(timestamp)) return "Reset não informado";
-    if (timestamp <= Date.now()) return "Reset vencido · aguardando confirmação";
-    return `Redefine em ${formatDuration((timestamp - Date.now()) / 60000)}`;
+    const now = new Date();
+    if (timestamp <= now.getTime()) return "Reset vencido · aguardando confirmação";
+    const resetDate = new Date(timestamp);
+    if (resetDate.getFullYear() === now.getFullYear()
+        && resetDate.getMonth() === now.getMonth()
+        && resetDate.getDate() === now.getDate()) {
+        return `Hoje às ${resetDate.toLocaleTimeString("pt-BR", {
+            hour: "2-digit", minute: "2-digit",
+        })}`;
+    }
+    return `Redefine em ${resetDate.toLocaleString("pt-BR", {
+        day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+    })}`;
+}
+
+function formatResetCountdown(resetsAt) {
+    const timestamp = Date.parse(resetsAt);
+    if (!Number.isFinite(timestamp)) return "Reset não informado";
+    const minutes = Math.ceil((timestamp - Date.now()) / 60000);
+    if (minutes <= 0) return "Reset vencido · aguardando confirmação";
+    const days = Math.floor(minutes / (24 * 60));
+    const remainingMinutes = minutes % (24 * 60);
+    const duration = days > 0
+        ? `${days}d${remainingMinutes > 0 ? ` ${formatDuration(remainingMinutes)}` : ""}`
+        : formatDuration(minutes);
+    return `Redefine em ${duration}`;
 }
 
 function makeQuotaTooltip(actor, text) {
@@ -726,15 +750,10 @@ class AiLimitsApplet extends Applet.Applet {
                     "codex-rollout": "Codex · sessão local",
                     "codex-rpc": "Codex · consulta oficial",
                 };
-                const resetTimestamp = Date.parse(window.resetsAt);
-                const resetDate = Number.isFinite(resetTimestamp)
-                    ? new Date(resetTimestamp).toLocaleString("pt-BR", {
-                        day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
-                    }) : "não informado";
                 const details = [
                     `Fonte: ${sourceNames[window.source] || "não informada"}`,
                     `Leitura: ${observation.ageText.replace(/^Observado /, "")}`,
-                    `Reset: ${resetDate}${resetSourceNote}`,
+                    `Reset: ${formatResetCountdown(window.resetsAt)}${resetSourceNote}`,
                 ];
                 if (expired) details.push("Reset vencido · aguardando confirmação");
                 else if (oldReading) details.push("Dado antigo · pode não refletir o uso atual");

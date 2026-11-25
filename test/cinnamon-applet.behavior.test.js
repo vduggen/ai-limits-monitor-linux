@@ -596,7 +596,9 @@ test("Cinnamon panel uses GNOME spacing, icon size, and centered normal-weight l
 });
 
 test("Cinnamon menu renders account cards with current limits, reset times, and errors", () => {
-  const harness = makeHarness(makeSnapshot());
+  const snapshot = makeSnapshot();
+  snapshot.accounts[0].windows[0].resetsAt = new Date(Date.now() + 27 * 60 * 60_000).toISOString();
+  const harness = makeHarness(snapshot);
   const applet = createApplet(harness);
   const texts = collectMenuTexts(applet.menu.items);
   const widgets = collectMenuWidgets(applet.menu.items);
@@ -611,7 +613,10 @@ test("Cinnamon menu renders account cards with current limits, reset times, and 
   assert.ok(texts.includes("Pro"));
   assert.ok(texts.includes("Sessão (5 h)"));
   assert.ok(texts.includes("60% restante"));
-  assert.ok(texts.some((text) => text.startsWith("Redefine em ")));
+  const resetDate = new Date(snapshot.accounts[0].windows[0].resetsAt).toLocaleString("pt-BR", {
+    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+  });
+  assert.ok(texts.some((text) => text.startsWith(`Redefine em ${resetDate}`)));
   assert.ok(texts.includes("Rate limit; tente novamente mais tarde."));
   assert.equal(progressBars.length, 1);
   assert.equal(progressBars[0].fraction, 0.6);
@@ -722,6 +727,7 @@ test("Cinnamon menu distinguishes a carried reset from the Desktop percentage so
 
 test("Cinnamon quota rows show one compact detail line and keep full diagnostics in tooltips", () => {
   const snapshot = makeSnapshot();
+  snapshot.accounts[0].windows[0].resetsAt = new Date(Date.now() + 27 * 60 * 60_000).toISOString();
   snapshot.accounts[0].windows[0].source = "claude-sdk";
   snapshot.accounts[0].windows[0].observedAt = new Date(Date.now() - 30_000).toISOString();
   const harness = makeHarness(snapshot);
@@ -730,12 +736,16 @@ test("Cinnamon quota rows show one compact detail line and keep full diagnostics
   const row = tooltip.actor;
   assert.equal(row.children.length, 3); // Title/percent, progress bar, compact detail.
   const detail = row.children[2].properties.text;
-  assert.match(detail, /^Redefine em .* · leitura há /);
+  const resetDate = new Date(snapshot.accounts[0].windows[0].resetsAt).toLocaleString("pt-BR", {
+    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+  });
+  assert.ok(detail.startsWith(`Redefine em ${resetDate} · leitura há `));
   assert.doesNotMatch(detail, /CLI|SDK|RPC|Observado|observado/);
   assert.match(tooltip.text, /Fonte: Claude · consulta oficial/);
   assert.equal(tooltip.text.split("\n").length, 3);
   assert.match(tooltip.text, /\nLeitura: há /);
-  assert.match(tooltip.text, /\nReset: /);
+  assert.match(tooltip.text, /\nReset: Redefine em 1d 3h/);
+  assert.ok(!tooltip.text.includes(resetDate));
   assert.doesNotMatch(tooltip.text, /SDK|RPC|medição do provedor/);
   assert.match(tooltip._tooltip.style, /max-width: 340px/);
   assert.match(tooltip._tooltip.style, /text-align: left/);
@@ -849,6 +859,47 @@ test("Cinnamon progress bars and percentages use the provider section color", ()
   });
   assert.match(findMenuLabel(applet, "60% restante").style, /color: #f47b53/);
   assert.match(findMenuLabel(applet, "40% usado").style, /color: #10a37f/);
+  applet.on_applet_removed_from_panel();
+});
+
+test("Cinnamon shows today's reset as Hoje às in local time", (context) => {
+  context.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 10, 11, 10, 0).getTime() });
+  const snapshot = makeSnapshot();
+  const applet = createApplet(makeHarness(snapshot));
+  const tooltip = applet.detailTooltips[0];
+  assert.equal(tooltip.actor.children[2].properties.text, "Hoje às 13:00");
+  assert.match(tooltip.text, /Reset: Redefine em 3h/);
+  applet.on_applet_removed_from_panel();
+});
+
+test("Cinnamon keeps the date for resets on the next local day", (context) => {
+  context.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 10, 11, 23, 0).getTime() });
+  const snapshot = makeSnapshot();
+  const applet = createApplet(makeHarness(snapshot));
+  const resetDate = new Date(snapshot.accounts[0].windows[0].resetsAt).toLocaleString("pt-BR", {
+    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+  });
+  assert.equal(applet.detailTooltips[0].actor.children[2].properties.text, `Redefine em ${resetDate}`);
+  applet.on_applet_removed_from_panel();
+});
+
+test("Cinnamon reset tooltips include days, hours and minutes", () => {
+  const snapshot = makeSnapshot();
+  snapshot.accounts[0].windows[0].resetsAt = new Date(
+    Date.now() + (2 * 24 * 60 + 3 * 60 + 4) * 60_000,
+  ).toISOString();
+  const applet = createApplet(makeHarness(snapshot));
+  assert.match(applet.detailTooltips[0].text, /Reset: Redefine em 2d 3h 4min/);
+  applet.on_applet_removed_from_panel();
+});
+
+test("Cinnamon keeps missing reset information explicit in the row and tooltip", () => {
+  const snapshot = makeSnapshot();
+  snapshot.accounts[0].windows[0].resetsAt = null;
+  const applet = createApplet(makeHarness(snapshot));
+  const tooltip = applet.detailTooltips[0];
+  assert.match(tooltip.actor.children[2].properties.text, /^Reset não informado/);
+  assert.match(tooltip.text, /Reset: Reset não informado/);
   applet.on_applet_removed_from_panel();
 });
 
