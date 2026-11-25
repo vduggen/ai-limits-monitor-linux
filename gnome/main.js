@@ -376,9 +376,7 @@ export class AiLimitsMonitor {
                 onRestart: () => this._restartService(),
             }, snapshotApi);
         }
-        const accounts = (this._snapshot?.accounts ?? [])
-            .filter(account => account.status !== 'unsupported');
-        this._dashboard.update(view, accounts);
+        this._dashboard.update(view, snapshotApi.buildMenuAccounts(this._snapshot));
         this._dashboard.setRefreshSensitive(!this._pendingRefresh);
         this._dashboard.setRestartSensitive(!this._restartingService);
         this._updateMenuSize();

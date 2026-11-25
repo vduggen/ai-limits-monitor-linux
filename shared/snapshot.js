@@ -614,6 +614,17 @@ var AiLimitsSnapshot = (function () {
         return initials.slice(0, 3) || "??";
     }
 
+    // Accounts shown as popup cards, in the same order as the panel entries:
+    // Claude first, then Codex, each in cache order.
+    function buildMenuAccounts(snapshotView) {
+        var accounts = Array.isArray(snapshotView.accounts) ? snapshotView.accounts : [];
+        return ["claude", "codex"].reduce(function (ordered, provider) {
+            return ordered.concat(accounts.filter(function (account) {
+                return account.provider === provider && account.status !== "unsupported";
+            }));
+        }, []);
+    }
+
     function buildPanelLabels(snapshotView) {
         var staleMarker = snapshotView.state === "stale"
             ? " (antigo)"
@@ -680,6 +691,7 @@ var AiLimitsSnapshot = (function () {
 
     return {
         buildAccountCardView: buildAccountCardView,
+        buildMenuAccounts: buildMenuAccounts,
         buildMenuView: buildMenuView,
         buildPanelLabels: buildPanelLabels,
         buildSnapshotView: buildSnapshotView,

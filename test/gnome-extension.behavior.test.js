@@ -207,6 +207,7 @@ function makeHarness() {
     { AiLimitsSnapshot: {
       buildMenuView: () => ({ statusText: "Status", emptyText: "Sem dados", groups: [] }),
       buildPanelLabels: () => ({ entries: [] }),
+      buildMenuAccounts: (view) => (view.accounts ?? []).filter((account) => account.status !== "unsupported"),
       buildSnapshotView: (contents) => contents === null ? { createdAt: null } : JSON.parse(contents),
     }},
     class {

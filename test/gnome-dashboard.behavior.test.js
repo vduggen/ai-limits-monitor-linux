@@ -7,7 +7,8 @@ const { buildMenuView, buildSnapshotView } = snapshotApi;
 const source = await readFile(new URL('../gnome/dashboard.js', import.meta.url), 'utf8');
 const tooltips = [];
 const Main = { uiGroup: { add_child(child) { tooltips.push(child); } } };
-const { Dashboard, AccountCard } = new Function('St', 'PopupMenu', 'Main', `${source.replace(/^import .*;\n/gm, '').replaceAll('export class ', 'class ').replaceAll('export function ', 'function ')}; return {Dashboard, AccountCard};`)(St, PopupMenu, Main);
+const Pango = { EllipsizeMode: { NONE: 0 } };
+const { Dashboard, AccountCard } = new Function('St', 'PopupMenu', 'Main', 'Pango', `${source.replace(/^import .*;\n/gm, '').replaceAll('export class ', 'class ').replaceAll('export function ', 'function ')}; return {Dashboard, AccountCard};`)(St, PopupMenu, Main, Pango);
 const now = Date.parse('2026-10-21T12:00:00Z');
 const account = { id: 'a', label: 'Claude pessoal', provider: 'claude', status: 'error', error: '429', displayMode: 'remaining',
   plan: 'max', email: 'pessoa@example.test', source: 'statusLine', checkedAt: '2026-10-21T11:57:00Z',
@@ -33,15 +34,15 @@ test('card mirrors the Cinnamon layout: provider, plan, account, metadata, error
   assert.equal(weekly.title.text, 'Semanal (1 sem)');
   assert.equal(session.percent.text, '63% restante');
   assert.match(session.percent.style, /#f47b53/);
-  assert.match(session.fill.style, /#f47b53/);
+  assert.deepEqual(session.progress.color, [0xf4 / 255, 0x7b / 255, 0x53 / 255]);
   assert.match(session.reset.text, /^Hoje às \d{2}:\d{2} · (leitura|último dado) há 3min$/);
   assert.match(session.tooltip.text, /^Fonte: Claude · sessão local\nLeitura: há 3min\nReset: Redefine em 1h/);
   assert.equal(weekly.reset.text.startsWith('Reset não informado'), true);
   // Windows are stacked rows of the card, after the heading and message labels.
   assert.equal(card.actor.vertical, true);
   assert.deepEqual(card.actor.children.slice(6), [session.actor, weekly.actor]);
-  session.track.emit('notify::width');
-  assert.equal(session.fill.width, 126);
+  assert.equal(session.progress.fraction, 0.63);
+  assert.ok(session.progress.repaints > 0);
   card.destroy();
 });
 
@@ -51,8 +52,7 @@ test('card updates in place for display mode, countdown and removed windows', ()
   card.update(cardAccount({...account, displayMode: 'used'}), now);
   assert.equal(card.windows.get('s'), session);
   assert.equal(session.percent.text, '37% usado');
-  session.track.emit('notify::width');
-  assert.equal(session.fill.width, 74);
+  assert.equal(session.progress.fraction, 0.37);
   card.updateTime(now + 2 * 3600000);
   assert.match(session.reset.text, /aguardando confirmação/);
   assert.match(session.reset.style_class, /highlighted/);

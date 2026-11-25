@@ -136,3 +136,31 @@ for (const { name, text } of cases) {
     );
   });
 }
+
+test("menuAccountsFollowThePanelOrderAndSkipUnsupported", () => {
+  const account = (id, provider, status = "ok") => ({
+    id, provider, status, label: id,
+    windows: [window(`${id}-s`, "session", "Sessão", 10, "2026-10-26T15:00:00.000Z")],
+  });
+  const view = scriptSnapshot.buildSnapshotView(JSON.stringify({
+    version: 1,
+    createdAt: new Date(NOW).toISOString(),
+    accounts: [
+      account("codex-plus", "codex"),
+      account("claude-pessoal", "claude"),
+      account("codex-old", "codex", "unsupported"),
+      account("codex-business", "codex"),
+      account("claude-team", "claude"),
+    ],
+  }), NOW);
+
+  const cardIds = Array.from(scriptSnapshot.buildMenuAccounts(view), (entry) => entry.id);
+  const panelInitials = scriptSnapshot.buildPanelLabels(view).entries.map((entry) => entry.initials);
+
+  assert.deepEqual(cardIds, ["claude-pessoal", "claude-team", "codex-plus", "codex-business"]);
+  assert.equal(panelInitials.length, cardIds.length);
+  assert.deepEqual(
+    Array.from(scriptSnapshot.buildMenuAccounts(view), (entry) => entry.provider),
+    Array.from(scriptSnapshot.buildPanelLabels(view).entries, (entry) => entry.provider),
+  );
+});

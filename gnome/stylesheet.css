@@ -3,14 +3,17 @@
    made secondary text look faded on the Shell's dark popup. */
 .ai-limits-menu-item { padding: 0; margin: 0; background-color: transparent; }
 .ai-limits-menu-item:hover, .ai-limits-menu-item:focus { background-color: transparent; }
-.ai-limits-popup { spacing: 8px; padding: 8px 6px 8px 8px; }
+/* The right padding is 10px smaller than the left one: the header and the
+   card list each keep a 10px right gutter for the overlay scrollbar, so the
+   visible margins match on both sides (same rule as Cinnamon). */
+.ai-limits-popup { spacing: 8px; padding: 16px 6px 16px 16px; }
 
 .ai-limits-header { spacing: 12px; padding: 0 10px 8px 0; max-width: 440px; }
 .ai-limits-heading { spacing: 3px; }
 .ai-limits-heading-title { color: #ffffff; font-size: 1.12em; font-weight: 700; }
 .ai-limits-status { color: #dce1e7; font-size: 0.9em; max-width: 350px; }
 .ai-limits-header-actions { spacing: 5px; }
-.ai-limits-header-action { color: #cbd2d9; min-width: 32px; min-height: 32px; padding: 0; border-radius: 8px; background-color: transparent; }
+.ai-limits-header-action { color: #cbd2d9; min-width: 32px; max-width: 32px; min-height: 32px; max-height: 32px; padding: 0; border-radius: 8px; background-color: transparent; }
 .ai-limits-header-action:hover, .ai-limits-header-action:focus { color: #ffffff; background-color: rgba(128, 128, 128, 0.32); }
 .ai-limits-header-action:insensitive { color: #8b9299; background-color: rgba(128, 128, 128, 0.08); }
 
@@ -31,7 +34,6 @@
 .ai-limits-window-title { color: #f1f3f5; font-size: 0.95em; }
 .ai-limits-percent { font-weight: 700; }
 .ai-limits-track { height: 6px; border-radius: 3px; background-color: rgba(128, 128, 128, 0.24); }
-.ai-limits-fill { height: 6px; border-radius: 3px; }
 .ai-limits-reset { color: #b8c0c8; font-size: 0.82em; }
 .ai-limits-reset-highlighted { color: #e5b566; }
 

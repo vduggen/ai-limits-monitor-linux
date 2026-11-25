@@ -33,6 +33,10 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
   A primeira instalação do carregador ainda exige um logout.
 - `scripts/gnome-extension.sh nested` abre um GNOME Shell aninhado com uma cópia
   isolada da extensão para validar mudanças.
+- Os cartões do popup seguem a ordem do painel (Claude e depois Codex) no Cinnamon
+  e no GNOME. No GNOME, as margens laterais ficam simétricas, textos longos quebram
+  linha em vez de serem cortados e as barras são desenhadas como no Cinnamon, sem
+  "recarregar" ao reabrir o menu.
 - Identifica leituras provenientes do Claude Desktop no menu de contas.
 - O configurador GTK verifica atualizações do clone e, após confirmação, aplica
   fast-forward seguro, compila e sincroniza somente a extensão GNOME que o abriu.

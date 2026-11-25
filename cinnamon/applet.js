@@ -393,7 +393,7 @@ class AiLimitsApplet extends Applet.Applet {
     }
 
     renderMenu(view) {
-        const accounts = this.snapshotView.accounts.filter((account) => account.status !== "unsupported");
+        const accounts = this.snapshotModel.buildMenuAccounts(this.snapshotView);
         // Reuse actors while the layout is unchanged: replacing them dismisses
         // hovered tooltips, loses keyboard focus and resets the scroll adjustment.
         const structure = JSON.stringify([Boolean(view.emptyText), accounts.map((account) => [

@@ -1,3 +1,4 @@
+import Pango from 'gi://Pango';
 import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -7,8 +8,11 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 function makeLabel(parent, styleClass, properties = {}) {
     const actor = new St.Label({style_class: styleClass, ...properties});
-    if (actor.clutter_text)
+    // St.Label ellipsizes by default; wrap long texts like the Cinnamon popup.
+    if (actor.clutter_text) {
         actor.clutter_text.line_wrap = true;
+        actor.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+    }
     parent.add_child(actor);
     return actor;
 }
@@ -44,6 +48,39 @@ function makeHeaderAction(iconName, accessibleName, callback) {
     button.connect('clicked', callback);
     attachTooltip(button, accessibleName);
     return button;
+}
+
+function parseColor(hex) {
+    return [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16) / 255);
+}
+
+// Drawn on repaint with the current width, as in Cinnamon. A child widget sized
+// from notify::width lags one relayout behind and visibly regrows whenever the
+// menu reopens.
+function makeProgressBar() {
+    const area = new St.DrawingArea({style_class: 'ai-limits-track', x_expand: true});
+    area.fraction = 0;
+    area.color = [1, 1, 1];
+    area.connect('repaint', drawingArea => {
+        const context = drawingArea.get_context();
+        const [width, height] = drawingArea.get_surface_size();
+        const fillWidth = width * drawingArea.fraction;
+        if (fillWidth > 0 && height > 0) {
+            context.setSourceRGBA(...drawingArea.color, 1);
+            const radius = height / 2;
+            if (fillWidth <= height) {
+                context.arc(fillWidth / 2, radius, fillWidth / 2, 0, 2 * Math.PI);
+            } else {
+                context.arc(radius, radius, radius, Math.PI / 2, 3 * Math.PI / 2);
+                context.lineTo(fillWidth - radius, 0);
+                context.arc(fillWidth - radius, radius, radius, -Math.PI / 2, Math.PI / 2);
+                context.closePath();
+            }
+            context.fill();
+        }
+        context.$dispose();
+    });
+    return area;
 }
 
 function setActionSensitive(button, sensitive) {
@@ -99,8 +136,9 @@ export class AccountCard {
             row.title.text = window.title;
             row.percent.text = window.percentText;
             row.percent.set_style(`color: ${view.providerColor};`);
-            row.fill.set_style(`background-color: ${view.providerColor};`);
-            this._resizeFill(row);
+            row.progress.fraction = window.fraction;
+            row.progress.color = parseColor(view.providerColor);
+            row.progress.queue_repaint();
             row.reset.text = window.resetText;
             row.reset.style_class = window.resetHighlighted
                 ? 'ai-limits-reset ai-limits-reset-highlighted'
@@ -118,23 +156,13 @@ export class AccountCard {
         actor.add_child(line);
         const title = makeLabel(line, 'ai-limits-window-title', {x_expand: true});
         const percent = makeLabel(line, 'ai-limits-percent');
-        const track = new St.Widget({style_class: 'ai-limits-track', x_expand: true});
-        const fill = new St.Widget({style_class: 'ai-limits-fill'});
-        track.add_child(fill);
-        actor.add_child(track);
+        const progress = makeProgressBar();
+        actor.add_child(progress);
         const reset = makeLabel(actor, 'ai-limits-reset');
-        const row = {actor, title, percent, track, fill, reset, tooltip: attachTooltip(actor, '')};
-        track.connect('notify::width', () => this._resizeFill(row));
+        const row = {actor, title, percent, progress, reset, tooltip: attachTooltip(actor, '')};
         this.actor.add_child(actor);
         this.windows.set(id, row);
         return row;
-    }
-
-    _resizeFill(row) {
-        // Reading width before an actor is attached to a stage forces a
-        // premature theme lookup in St. Allocation updates size later.
-        if (row.window && row.track.get_stage())
-            row.fill.set_width(Math.max(0, row.track.width * row.window.fraction));
     }
 
     updateTime(nowMs) {
