@@ -341,7 +341,9 @@ class AiLimitsApplet extends Applet.Applet {
         this.menu = new Applet.AppletPopupMenu(this, orientation);
         // One outer inset for the header and cards; nested menu items must not
         // add their own margins or leave an asymmetric scrollbar gutter.
-        this.menu.box.set_style("padding: 16px; spacing: 8px;");
+        // The 10px missing on the right is a gutter inside the header and the card
+        // list, so the overlay scrollbar never covers their content.
+        this.menu.box.set_style("padding: 16px 6px 16px 16px; spacing: 8px;");
         const setMaxHeight = this.menu.setMaxHeight.bind(this.menu);
         this.menu.setMaxHeight = () => {
             // Let Cinnamon account for the current monitor, panels and UI scale.
@@ -478,7 +480,7 @@ class AiLimitsApplet extends Applet.Applet {
         this.emptyMenuItem = null;
 
         const header = new St.BoxLayout({ vertical: false, x_expand: true });
-        header.set_style("spacing: 12px; padding: 0 0 8px; max-width: 440px;");
+        header.set_style("spacing: 12px; padding: 0 10px 8px 0; max-width: 440px;");
         const heading = new St.BoxLayout({ vertical: true, x_expand: true });
         heading.set_style("spacing: 3px;");
         heading.add(makeLabel("AI Limits", "color: #ffffff; font-size: 1.12em; font-weight: 700;"));
@@ -542,7 +544,7 @@ class AiLimitsApplet extends Applet.Applet {
             const cards = new St.BoxLayout({ vertical: true, x_expand: true });
             // Overlay mode keeps the viewport full-width: St can reserve a
             // scrollbar column even when an automatic scrollbar is hidden.
-            cards.set_style("spacing: 8px;");
+            cards.set_style("spacing: 8px; padding-right: 10px;");
             scroll.add_actor(cards);
             this.accountScrollItem = addPopupContent(this.menu, scroll);
             accounts.forEach((account) => {
@@ -567,10 +569,11 @@ class AiLimitsApplet extends Applet.Applet {
         const headerTheme = this.menuHeaderItem.actor.get_theme_node();
         const horizontalInsets = menuTheme.get_horizontal_padding() + boxTheme.get_horizontal_padding()
             + headerTheme.get_horizontal_padding()
-            + headerTheme.get_margin(St.Side.LEFT) + headerTheme.get_margin(St.Side.RIGHT);
+            + headerTheme.get_margin(St.Side.LEFT) + headerTheme.get_margin(St.Side.RIGHT)
+            + 10 * scale;
         const width = Math.max(0, menuTheme.get_max_width() - horizontalInsets);
         const maxWidth = Math.min(440, Math.floor(width / scale));
-        this.menuHeader.set_style(`spacing: 12px; padding: 0 0 8px; max-width: ${maxWidth}px;`);
+        this.menuHeader.set_style(`spacing: 12px; padding: 0 10px 8px 0; max-width: ${maxWidth}px;`);
         if (!this.accountScroll) return;
         const scrollTheme = this.accountScrollItem.actor.get_theme_node();
         const [, headerHeight] = this.menuHeaderItem.actor.get_preferred_height(width);
@@ -579,9 +582,14 @@ class AiLimitsApplet extends Applet.Applet {
             + headerHeight + headerTheme.get_margin(St.Side.TOP) + headerTheme.get_margin(St.Side.BOTTOM)
             + scrollTheme.get_vertical_padding()
             + scrollTheme.get_margin(St.Side.TOP) + scrollTheme.get_margin(St.Side.BOTTOM);
-        const maxHeight = Math.max(0, Math.floor((menuTheme.get_max_height() - verticalInsets) / scale));
+        // Cinnamon's menu limit only discounts panels; the work area also discounts
+        // struts reserved by docks.
+        const monitor = Main.layoutManager.findMonitorForActor(this.actor);
+        const workArea = global.workspace_manager.get_active_workspace().get_work_area_for_monitor(monitor.index);
+        const availableHeight = Math.min(menuTheme.get_max_height(), workArea.height);
+        const maxHeight = Math.max(0, Math.floor((availableHeight - verticalInsets) / scale));
         // Maximums, not fixed dimensions: small menus keep their natural size.
-        this.accountScroll.set_style(`max-height: ${maxHeight}px; max-width: ${maxWidth}px;`);
+        this.accountScroll.set_style(`max-height: ${maxHeight}px; max-width: ${maxWidth + 10}px;`);
     }
 
     clearHeaderTooltips() {

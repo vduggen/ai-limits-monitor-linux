@@ -13,7 +13,7 @@ const cinnamonMetadata = JSON.parse(
   await readFile(new URL("../cinnamon/metadata.json", import.meta.url), "utf8"),
 );
 
-function makeHarness(initialSnapshot, { width = 1200, height = 760, scale = 1 } = {}) {
+function makeHarness(initialSnapshot, { width = 1200, height = 760, scale = 1, dockHeight = 0 } = {}) {
   let nextSourceId = 1;
   const sources = new Map();
   const removedSources = [];
@@ -104,10 +104,10 @@ function makeHarness(initialSnapshot, { width = 1200, height = 760, scale = 1 } 
       return {
         get_max_width: () => width,
         get_max_height: () => height,
-        get_horizontal_padding: () => this.style === "padding: 16px; spacing: 8px;" ? 32 * scale : 0,
-        get_vertical_padding: () => this.style === "padding: 16px; spacing: 8px;" ? 32 * scale : 0,
+        get_horizontal_padding: () => this.style === "padding: 16px 6px 16px 16px; spacing: 8px;" ? 22 * scale : 0,
+        get_vertical_padding: () => this.style === "padding: 16px 6px 16px 16px; spacing: 8px;" ? 32 * scale : 0,
         get_margin: () => 0,
-        get_length: () => this.style === "padding: 16px; spacing: 8px;" ? 8 * scale : 0,
+        get_length: () => this.style === "padding: 16px 6px 16px 16px; spacing: 8px;" ? 8 * scale : 0,
       };
     }
 
@@ -348,7 +348,7 @@ function makeHarness(initialSnapshot, { width = 1200, height = 760, scale = 1 } 
   } };
   const Util = { spawn: (command) => launchedCommands.push(command) };
   const Main = {
-    layoutManager: { primaryMonitor: { height: 800 } },
+    layoutManager: { primaryMonitor: { height: 800 }, findMonitorForActor: () => ({ index: 0 }) },
     notify: (title, body) => notifications.push({ title, body }),
     keybindingManager: {
       addXletHotKey(applet, name, accelerator, callback) {
@@ -388,7 +388,12 @@ function makeHarness(initialSnapshot, { width = 1200, height = 760, scale = 1 } 
   const AiLimitsApplet = new Function(
     "Applet", "PopupMenu", "Settings", "Tooltips", "Util", "Main", "GLib", "Gio", "St", "ByteArray", "global",
     `${sourceWithoutImports}\nreturn AiLimitsApplet;`,
-  )(Applet, PopupMenu, Settings, Tooltips, Util, Main, GLib, Gio, St, ByteArray, { ui_scale: scale });
+  )(Applet, PopupMenu, Settings, Tooltips, Util, Main, GLib, Gio, St, ByteArray, {
+    ui_scale: scale,
+    workspace_manager: { get_active_workspace: () => ({
+      get_work_area_for_monitor: () => ({ height: height - dockHeight }),
+    }) },
+  });
   const snapshotContext = {};
   vm.runInNewContext(snapshotSource, snapshotContext);
 
@@ -670,11 +675,11 @@ test("Cinnamon bounds the account area and identifies the age of each observatio
   applet.menu.setMaxHeight();
   const scroll = collectMenuWidgets(applet.menu.items).find(widget => widget.policy);
   assert.equal(applet.menu.sized, true);
-  assert.match(scroll.style, /max-height: 656px; max-width: 440px/);
+  assert.match(scroll.style, /max-height: 656px; max-width: 450px/);
   assert.deepEqual(scroll.policy, [0, 1]);
   assert.equal(scroll.properties.overlay_scrollbars, true);
-  assert.equal(applet.menu.box.style, "padding: 16px; spacing: 8px;");
-  assert.equal(scroll.children[0].style, "spacing: 8px;");
+  assert.equal(applet.menu.box.style, "padding: 16px 6px 16px 16px; spacing: 8px;");
+  assert.equal(scroll.children[0].style, "spacing: 8px; padding-right: 10px;");
   const accountItems = scroll.children[0].children;
   assert.equal(accountItems.length, 2);
   // Keep Cinnamon's PopupBaseMenuItem wrapper: its preferred-height contract
@@ -701,7 +706,7 @@ test("Cinnamon popup follows the available monitor bounds at different UI scales
     const scroll = collectMenuWidgets(applet.menu.items).find(widget => widget.policy);
     const expectedHeight = Math.max(0, Math.floor(bounds.height / bounds.scale - 104));
     const expectedWidth = Math.min(440, Math.floor(bounds.width / bounds.scale - 32));
-    assert.equal(scroll.style, `max-height: ${expectedHeight}px; max-width: ${expectedWidth}px;`);
+    assert.equal(scroll.style, `max-height: ${expectedHeight}px; max-width: ${expectedWidth + 10}px;`);
     assert.match(applet.menuHeader.style, new RegExp(`max-width: ${expectedWidth}px`));
     assert.doesNotMatch(scroll.style, /(?:^|; )(?:(?:min-)?height|width):/);
     applet.menu.isOpen = true;
@@ -709,6 +714,13 @@ test("Cinnamon popup follows the available monitor bounds at different UI scales
     assert.equal(applet.accountScroll.style, scroll.style);
     applet.on_applet_removed_from_panel();
   }
+});
+
+test("Cinnamon popup stops above a dock that reserves screen space", () => {
+  const applet = createApplet(makeHarness(makeSnapshot(), { dockHeight: 80 }));
+  applet.menu.setMaxHeight();
+  assert.match(applet.accountScroll.style, /max-height: 576px;/);
+  applet.on_applet_removed_from_panel();
 });
 
 test("Cinnamon menu distinguishes a carried reset from the Desktop percentage source", () => {
