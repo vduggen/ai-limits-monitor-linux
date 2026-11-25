@@ -40,6 +40,8 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
 - No GNOME, os botões do cabeçalho ficam quadrados (32×32) também no hover, os
   tooltips aparecem acima do popup e dentro da tela, e a barra de rolagem cabe no
   espaço reservado à direita dos cartões, independentemente do tema.
+- O popup GNOME abre alinhado à borda esquerda do indicador, como no Cinnamon,
+  sem sair do monitor.
 - Identifica leituras provenientes do Claude Desktop no menu de contas.
 - O configurador GTK verifica atualizações do clone e, após confirmação, aplica
   fast-forward seguro, compila e sincroniza somente a extensão GNOME que o abriu.

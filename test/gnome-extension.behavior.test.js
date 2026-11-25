@@ -36,6 +36,10 @@ class Menu {
   constructor() {
     this.items = [];
     this.handlers = new Map();
+    // Box pointer placed by GNOME 41px left of the indicator; content inset 12px.
+    this.actor = { x: 1198, width: 506, translation_x: 0, handlers: new Map(),
+      connect(signal, callback) { this.handlers.set(signal, callback); } };
+    this.box = { x: 12 };
   }
 
   connect(signal, callback) {
@@ -170,6 +174,7 @@ function makeHarness() {
     uiGroup: {add_child() {}},
     notify: (title, body) => notifications.push({ title, body }),
     panel: { addToStatusArea() {} },
+    layoutManager: { findMonitorForActor: () => ({ x: 0, width: 1920 }) },
   };
   const PopupMenu = {
     PopupMenuItem: MenuItem,
@@ -201,7 +206,7 @@ function makeHarness() {
     Clutter,
     class {},
     Main,
-    {Button: class extends Widget { constructor() { super(); this.menu = new Menu(); } }},
+    {Button: class extends Widget { constructor() { super(); this.menu = new Menu(); } get_transformed_position() { return [this.x ?? 1239, 0]; } }},
     PopupMenu,
     isUsageCacheEvent,
     { AiLimitsSnapshot: {
@@ -427,5 +432,23 @@ test("dashboardReceivesOnlySupportedAccountsAndMenuOpeningRereadsCache", () => {
   harness.setSnapshot({ createdAt: "later", accounts: [{ id: "c", status: "ok" }] });
   extension._indicator.menu.handlers.get("open-state-changed")(extension._indicator.menu, true);
   assert.deepEqual(extension._dashboard.updated.accounts.map((account) => account.id), ["c"]);
+  extension.disable();
+});
+
+test("popupOpensAlignedWithTheIndicatorAndStaysOnTheMonitor", () => {
+  const harness = makeHarness();
+  harness.setSnapshot({ createdAt: "now", accounts: [] });
+  const extension = makeEnabledExtension(harness);
+  extension.metadata = { name: "Monitor" };
+  extension.enable();
+  const popup = extension._indicator.menu.actor;
+  popup.handlers.get("notify::allocation")();
+  // Visible edge (popup.x + content inset + shift) starts at the indicator.
+  assert.equal(popup.x + 12 + popup.translation_x, 1239);
+
+  // An indicator near the right edge cannot push the popup off the monitor.
+  extension._indicator.x = 1800;
+  popup.handlers.get("notify::allocation")();
+  assert.equal(popup.x + popup.width + popup.translation_x, 1920);
   extension.disable();
 });

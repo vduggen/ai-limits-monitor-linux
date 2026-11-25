@@ -51,6 +51,10 @@ export class AiLimitsMonitor {
         this._snapshot = null;
 
         this._indicator = new PanelMenu.Button(0.0, this.metadata.name);
+        // Like the Cinnamon applet, the popup opens aligned with the indicator.
+        // GNOME places it from the theme's arrow metrics instead, far from the
+        // left edge of a wide panel label.
+        this._indicator.menu.actor.connect('notify::allocation', () => this._alignMenuWithIndicator());
         // Like Cinnamon, reread the cache whenever the popup opens.
         this._indicator.menu.connect('open-state-changed', (_menu, isOpen) => {
             if (isOpen)
@@ -392,6 +396,22 @@ export class AiLimitsMonitor {
         const width = Math.min(450, Math.max(120, workArea.width / scale - 64));
         const maxHeight = Math.max(120, workArea.height / scale - 160);
         this._dashboard.scroll.set_style(`width: ${width}px; max-height: ${maxHeight}px;`);
+    }
+
+    // Shifts the popup so its visible edge starts where the indicator starts,
+    // without leaving the monitor. The translation does not change the
+    // allocation, so this handler does not trigger itself.
+    _alignMenuWithIndicator() {
+        const popup = this._indicator.menu.actor;
+        const content = this._indicator.menu.box;
+        const monitor = Main.layoutManager.findMonitorForActor(this._indicator);
+        if (!monitor)
+            return;
+        const [indicatorX] = this._indicator.get_transformed_position();
+        const shift = indicatorX - (popup.x + content.x);
+        const minShift = monitor.x - popup.x;
+        const maxShift = monitor.x + monitor.width - (popup.x + popup.width);
+        popup.translation_x = Math.round(Math.max(minShift, Math.min(shift, maxShift)));
     }
 
     _launchConfiguration() {
