@@ -187,62 +187,6 @@ function makeLabel(text, style, properties = {}) {
     return label;
 }
 
-function formatDuration(totalMinutes) {
-    const minutes = Math.max(0, Math.ceil(totalMinutes));
-    const days = Math.floor(minutes / (24 * 60));
-    const hours = Math.floor((minutes % (24 * 60)) / 60);
-    const remainingMinutes = minutes % 60;
-    if (days > 0)
-        return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
-    if (hours > 0)
-        return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}min` : `${hours}h`;
-    return `${remainingMinutes}min`;
-}
-
-function formatWindowDuration(window) {
-    if (!Number.isFinite(window.windowDurationMins) || window.windowDurationMins <= 0)
-        return "";
-    const minutes = window.windowDurationMins;
-    if (minutes % (7 * 24 * 60) === 0)
-        return `${minutes / (7 * 24 * 60)} sem`;
-    if (minutes % (24 * 60) === 0)
-        return `${minutes / (24 * 60)} d`;
-    if (minutes % 60 === 0)
-        return `${minutes / 60} h`;
-    return `${minutes} min`;
-}
-
-function formatCompactReset(resetsAt) {
-    const timestamp = Date.parse(resetsAt);
-    if (!Number.isFinite(timestamp)) return "Reset não informado";
-    const now = new Date();
-    if (timestamp <= now.getTime()) return "Reset vencido · aguardando confirmação";
-    const resetDate = new Date(timestamp);
-    if (resetDate.getFullYear() === now.getFullYear()
-        && resetDate.getMonth() === now.getMonth()
-        && resetDate.getDate() === now.getDate()) {
-        return `Hoje às ${resetDate.toLocaleTimeString("pt-BR", {
-            hour: "2-digit", minute: "2-digit",
-        })}`;
-    }
-    return `Redefine em ${resetDate.toLocaleString("pt-BR", {
-        day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
-    })}`;
-}
-
-function formatResetCountdown(resetsAt) {
-    const timestamp = Date.parse(resetsAt);
-    if (!Number.isFinite(timestamp)) return "Reset não informado";
-    const minutes = Math.ceil((timestamp - Date.now()) / 60000);
-    if (minutes <= 0) return "Reset vencido · aguardando confirmação";
-    const days = Math.floor(minutes / (24 * 60));
-    const remainingMinutes = minutes % (24 * 60);
-    const duration = days > 0
-        ? `${days}d${remainingMinutes > 0 ? ` ${formatDuration(remainingMinutes)}` : ""}`
-        : formatDuration(minutes);
-    return `Redefine em ${duration}`;
-}
-
 function makeQuotaTooltip(actor, text) {
     const tooltip = new Tooltips.Tooltip(actor, text);
     // Cinnamon's default tooltip theme can be centered and heavily rounded.
@@ -461,10 +405,7 @@ class AiLimitsApplet extends Applet.Applet {
         if (this.menuStructure === structure) {
             this.menuStatusLabel.set_text(view.statusText);
             if (this.emptyMenuItem) this.emptyMenuItem.label.set_text(view.emptyText);
-            accounts.forEach((account, index) => this.renderAccountCard(
-                account, this.accountCards[index].providerLabel, this.accountCards[index].providerColor,
-                null, this.accountCards[index],
-            ));
+            accounts.forEach((account, index) => this.renderAccountCard(account, null, this.accountCards[index]));
             this.setRefreshButtonSensitive(!this.pendingRefresh);
             this.restartButton.reactive = !this.restartingService;
             this.restartButton.can_focus = !this.restartingService;
@@ -536,8 +477,6 @@ class AiLimitsApplet extends Applet.Applet {
                 "color: #e1e5e9;",
             );
         } else {
-            const providerLabels = { claude: "Claude", codex: "Codex" };
-            const providerColors = { claude: "#f47b53", codex: "#10a37f" };
             const scroll = new St.ScrollView({ x_expand: true, reactive: true, overlay_scrollbars: true });
             this.accountScroll = scroll;
             scroll.set_policy(St.PolicyType.NEVER, St.PolicyType.AUTOMATIC);
@@ -548,12 +487,7 @@ class AiLimitsApplet extends Applet.Applet {
             scroll.add_actor(cards);
             this.accountScrollItem = addPopupContent(this.menu, scroll);
             accounts.forEach((account) => {
-                this.accountCards.push(this.renderAccountCard(
-                    account,
-                    providerLabels[account.provider],
-                    providerColors[account.provider],
-                    cards,
-                ));
+                this.accountCards.push(this.renderAccountCard(account, cards));
             });
         }
         if (this.menu.isOpen) this.menu.setMaxHeight();
@@ -611,8 +545,9 @@ class AiLimitsApplet extends Applet.Applet {
         updateHeaderActionStyle(this.refreshButton);
     }
 
-    renderAccountCard(account, providerLabel, providerColor, container, existing = null) {
-        const widgets = existing || { labels: [], rows: [], providerLabel, providerColor };
+    renderAccountCard(account, container, existing = null) {
+        const view = this.snapshotModel.buildAccountCardView(account);
+        const widgets = existing || { labels: [], rows: [] };
         let labelIndex = 0;
         // The menu structure key guarantees identical label/row order on updates.
         const label = (text, style, properties) => {
@@ -638,73 +573,45 @@ class AiLimitsApplet extends Applet.Applet {
         const heading = widgets.heading || new St.BoxLayout({ vertical: false, x_expand: true });
         widgets.heading = heading;
         heading.set_style("spacing: 8px;");
-        const dot = label("●", `color: ${providerColor}; font-size: 14px;`);
-        const provider = label(providerLabel, "color: #f7f8fa; font-size: 1.05em; font-weight: 700;");
+        const dot = label("●", `color: ${view.providerColor}; font-size: 14px;`);
+        const provider = label(view.providerLabel, "color: #f7f8fa; font-size: 1.05em; font-weight: 700;");
         if (!existing) {
             heading.add(dot);
             heading.add(provider);
             heading.add(new St.Widget({ x_expand: true }));
         }
-        if (account.plan) {
+        if (view.plan) {
             const plan = label(
-                account.plan,
+                view.plan,
                 "color: #f1f3f5; font-size: 0.85em; padding: 3px 8px; border-radius: 12px; background-color: rgba(128, 128, 128, 0.24);",
             );
             if (!existing) heading.add(plan);
         }
         if (!existing) card.add(heading);
 
-        const accountLabel = label(account.label, "color: #f5f6f7; font-size: 0.92em; font-weight: 600;");
+        const accountLabel = label(view.label, "color: #f5f6f7; font-size: 0.92em; font-weight: 600;");
         if (!existing) card.add(accountLabel);
-        const displayMode = account.displayMode === "used" ? "used" : "remaining";
-        const sourceLabel = account.source === "statusLine"
-            ? "status line local"
-            : account.source === "desktop" ? "Claude Desktop"
-            : account.source === "oauth" ? "OAuth" : account.provider === "codex" ? "Codex" : null;
-        const sourceMetadata = sourceLabel
-            ? "Fonte: " + sourceLabel
-                + (account.checkedAt
-                    ? " · leitura " + this.snapshotModel.formatSnapshotAge(
-                        Math.max(0, Date.now() - Date.parse(account.checkedAt)),
-                    )
-                    : "")
-                + (account.stale ? " (antiga)" : "")
-            : null;
-        const metadata = [
-            account.email,
-            sourceMetadata,
-        ].filter(Boolean).join(" · ");
-        if (metadata) {
-            const metadataLabel = label(metadata, "color: #dce2e8; font-size: 0.85em;");
+        if (view.metadata) {
+            const metadataLabel = label(view.metadata, "color: #dce2e8; font-size: 0.85em;");
             if (!existing) card.add(metadataLabel);
         }
 
-        if (account.error) {
+        if (view.error) {
             const errorLabel = label(
-                account.error,
+                view.error,
                 "color: #e97870; font-size: 0.92em; max-width: 410px;",
             );
             if (!existing) card.add(errorLabel);
         }
-        if (account.collection?.nextRetryAt) {
-            const retryTime = Date.parse(account.collection.nextRetryAt);
-            if (Number.isFinite(retryTime)) {
-                const remaining = retryTime - Date.now();
-                const message = remaining > 0
-                    ? `Nova tentativa em ${formatDuration(remaining / 60000)}. O refresh respeita esta espera.`
-                    : "Nova tentativa pendente. Use Atualizar agora ou verifique o serviço.";
-                const retryLabel = label(message, "color: #e1e5e9; font-size: 0.85em; max-width: 410px;");
-                if (!existing) card.add(retryLabel);
-            }
+        if (view.retryText) {
+            const retryLabel = label(view.retryText, "color: #e1e5e9; font-size: 0.85em; max-width: 410px;");
+            if (!existing) card.add(retryLabel);
         }
-        if (account.windows.length === 0 && !account.error) {
-            const emptyLabel = label("Esta conta não reportou limites.", "color: #e1e5e9; font-size: 0.9em;");
+        if (view.emptyText) {
+            const emptyLabel = label(view.emptyText, "color: #e1e5e9; font-size: 0.9em;");
             if (!existing) card.add(emptyLabel);
-        } else if (account.windows.length > 0) {
-            account.windows.forEach((window, index) => {
-                const percent = displayMode === "used" ? window.usedPercent : window.remainingPercent;
-                const duration = formatWindowDuration(window);
-                const windowTitle = duration ? `${window.label} (${duration})` : window.label;
+        } else {
+            view.windows.forEach((window, index) => {
                 const rowWidgets = widgets.rows[index] || {};
                 widgets.rows[index] = rowWidgets;
                 const row = rowWidgets.row || new St.BoxLayout({ vertical: true, x_expand: true, reactive: true, can_focus: true });
@@ -714,63 +621,27 @@ class AiLimitsApplet extends Applet.Applet {
                 const labels = rowWidgets.labels || new St.BoxLayout({ vertical: false, x_expand: true });
                 rowWidgets.labels = labels;
                 labels.set_style("spacing: 8px;");
-                const titleLabel = label(windowTitle, "color: #f1f3f5; font-size: 0.95em;", { x_expand: true });
-                const percentLabel = label(
-                    `${percent}% ${displayMode === "used" ? "usado" : "restante"}${account.stale ? " · antigo" : ""}`,
-                    `font-weight: 700; color: ${providerColor};`,
-                );
+                const titleLabel = label(window.title, "color: #f1f3f5; font-size: 0.95em;", { x_expand: true });
+                const percentLabel = label(window.percentText, `font-weight: 700; color: ${view.providerColor};`);
                 if (!existing) {
                     labels.add(titleLabel);
                     labels.add(percentLabel);
                     row.add(labels);
-                    rowWidgets.progress = makeProgressBar(percent, providerColor);
+                    rowWidgets.progress = makeProgressBar(window.fraction * 100, view.providerColor);
                     row.add(rowWidgets.progress);
                 } else {
-                    rowWidgets.progress.fraction = Math.max(0, Math.min(100, percent)) / 100;
+                    rowWidgets.progress.fraction = window.fraction;
                     rowWidgets.progress.queue_repaint();
                 }
-                const observation = this.snapshotModel.buildWindowView(window, displayMode);
-                const hasObservation = Boolean(window.observedAt || window.sourceEventAt);
-                const resetSource = window.resetSource === "oauth"
-                    ? "OAuth"
-                    : window.resetSource === "statusLine" ? "status line local" : null;
-                const resetAge = window.resetCheckedAt
-                    ? " lido " + this.snapshotModel.formatSnapshotAge(
-                        Math.max(0, Date.now() - Date.parse(window.resetCheckedAt)),
-                    )
-                    : "";
-                const resetSourceNote = resetSource && window.resetSource !== account.source
-                    ? ` · reset ${resetSource}${resetAge}`
-                    : "";
-                const resetText = formatCompactReset(window.resetsAt);
-                const oldReading = account.stale || (hasObservation && observation.state === "last-known");
-                const expired = observation.state === "expired";
-                const ageText = hasObservation && !expired
-                    ? ` · ${oldReading ? "último dado" : "leitura"} ${observation.ageText.replace(/^Observado /, "")}`
-                    : "";
-                const resetLabel = label(resetText + ageText,
-                    `color: ${oldReading || expired ? "#e5b566" : "#b8c0c8"}; font-size: 0.82em;`);
+                const resetLabel = label(window.resetText,
+                    `color: ${window.resetHighlighted ? "#e5b566" : "#b8c0c8"}; font-size: 0.82em;`);
                 if (!existing) row.add(resetLabel);
-                const sourceNames = {
-                    "claude-statusline": "Claude · sessão local",
-                    "claude-desktop": "Claude Desktop",
-                    "claude-sdk": "Claude · consulta oficial",
-                    "codex-rollout": "Codex · sessão local",
-                    "codex-rpc": "Codex · consulta oficial",
-                };
-                const details = [
-                    `Fonte: ${sourceNames[window.source] || "não informada"}`,
-                    `Leitura: ${observation.ageText.replace(/^Observado /, "")}`,
-                    `Reset: ${formatResetCountdown(window.resetsAt)}${resetSourceNote}`,
-                ];
-                if (expired) details.push("Reset vencido · aguardando confirmação");
-                else if (oldReading) details.push("Dado antigo · pode não refletir o uso atual");
-                row.accessible_name = observation.accessibleText;
+                row.accessible_name = window.accessibleText;
                 if (!existing) {
-                    rowWidgets.tooltip = makeQuotaTooltip(row, details.join("\n"));
+                    rowWidgets.tooltip = makeQuotaTooltip(row, window.detailsText);
                     this.detailTooltips.push(rowWidgets.tooltip);
                     card.add(row);
-                } else rowWidgets.tooltip.set_text(details.join("\n"));
+                } else rowWidgets.tooltip.set_text(window.detailsText);
             });
         }
 

@@ -394,7 +394,8 @@ function makeHarness(initialSnapshot, { width = 1200, height = 760, scale = 1, d
       get_work_area_for_monitor: () => ({ height: height - dockHeight }),
     }) },
   });
-  const snapshotContext = {};
+  // Share the test realm's Date so mocked clocks also reach the shared model.
+  const snapshotContext = { Date };
   vm.runInNewContext(snapshotSource, snapshotContext);
 
   return {

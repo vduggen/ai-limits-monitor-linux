@@ -20,6 +20,19 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
 
 ### GNOME e interfaces compartilhadas
 
+- O popup GNOME passa a seguir o layout e as ações do applet Cinnamon: cabeçalho
+  com Configurar, Atualizar agora e Reiniciar serviço; cartões com plano, e-mail,
+  fonte, erro, nova tentativa e janelas empilhadas com duração, barra na cor do
+  provedor, reset e detalhes no tooltip. Os textos dos cartões vêm de
+  `buildAccountCardView` em `shared/snapshot.js`, usado pelas duas interfaces.
+- No GNOME, o resultado de **Atualizar agora** é verificado a cada segundo, a
+  notificação traz o mesmo resumo do Cinnamon e o cache é relido ao abrir o menu.
+- A extensão GNOME passa a usar um carregador versionado (ADR-003): cada
+  instalação vai para `versions/<id>/` e **Recarregar extensão** (ou
+  `scripts/gnome-extension.sh install`) ativa a versão nova sem encerrar a sessão.
+  A primeira instalação do carregador ainda exige um logout.
+- `scripts/gnome-extension.sh nested` abre um GNOME Shell aninhado com uma cópia
+  isolada da extensão para validar mudanças.
 - Identifica leituras provenientes do Claude Desktop no menu de contas.
 - O configurador GTK verifica atualizações do clone e, após confirmação, aplica
   fast-forward seguro, compila e sincroniza somente a extensão GNOME que o abriu.

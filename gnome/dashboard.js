@@ -1,138 +1,144 @@
 import St from 'gi://St';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-function label(parent, style = '') {
-    const actor = new St.Label({style_class: style, x_expand: true});
+// The popup mirrors the Cinnamon applet: same header actions, card layout and
+// texts. Card content comes from the shared buildAccountCardView().
+
+function makeLabel(parent, styleClass, properties = {}) {
+    const actor = new St.Label({style_class: styleClass, ...properties});
+    if (actor.clutter_text)
+        actor.clutter_text.line_wrap = true;
     parent.add_child(actor);
     return actor;
 }
 
+// GNOME Shell has no tooltip widget for extensions; show a label on hover.
+export function attachTooltip(actor, text) {
+    actor.accessible_name ??= text;
+    actor.reactive = true;
+    actor.track_hover = true;
+    const tooltip = new St.Label({text, style_class: 'ai-limits-tooltip', visible: false});
+    if (tooltip.clutter_text)
+        tooltip.clutter_text.line_wrap = true;
+    Main.uiGroup.add_child(tooltip);
+    actor.connect('notify::hover', () => {
+        tooltip.visible = actor.hover;
+        if (actor.hover) {
+            const [x, y] = actor.get_transformed_position();
+            tooltip.set_position(x, y + actor.height + 8);
+        }
+    });
+    actor.connect('destroy', () => tooltip.destroy());
+    return tooltip;
+}
+
+function makeHeaderAction(iconName, accessibleName, callback) {
+    const button = new St.Button({
+        style_class: 'ai-limits-header-action',
+        can_focus: true,
+        track_hover: true,
+        accessible_name: accessibleName,
+        child: new St.Icon({icon_name: iconName, icon_size: 16}),
+    });
+    button.connect('clicked', callback);
+    attachTooltip(button, accessibleName);
+    return button;
+}
+
+function setActionSensitive(button, sensitive) {
+    button.reactive = sensitive;
+    button.can_focus = sensitive;
+    button.sensitive = sensitive;
+}
+
 export class AccountCard {
-    constructor(view, clock = Date.now, iconForProvider = () => null, snapshotApi) {
-        this.clock = clock;
-        this.iconForProvider = iconForProvider;
+    constructor(account, snapshotApi, nowMs) {
         this.snapshotApi = snapshotApi;
         this.actor = new St.BoxLayout({vertical: true, style_class: 'ai-limits-card', x_expand: true});
-        this.header = new St.BoxLayout({style_class: 'ai-limits-card-header', x_expand: true});
-        this.actor.add_child(this.header);
-        this.badge = new St.Icon({icon_size: 20, style_class: 'ai-limits-provider-logo', x_expand: false});
-        this.header.add_child(this.badge);
-        this.title = label(this.header, 'ai-limits-title');
-        this.mode = label(this.header, 'ai-limits-mode');
-        this.mode.x_expand = false;
-        this.windowBox = new St.BoxLayout({vertical: false, style_class: 'ai-limits-windows', x_expand: true});
-        this.actor.add_child(this.windowBox);
-        this.warning = label(this.actor, 'ai-limits-alert');
-        this.retry = label(this.actor, 'ai-limits-detail');
-        this.empty = label(this.actor, 'ai-limits-detail');
-        this.detailsButton = new St.Button({label: 'Detalhes da coleta ▸', style_class: 'ai-limits-details-button', can_focus: true, x_expand: true});
-        this.actor.add_child(this.detailsButton);
-        this.details = new St.BoxLayout({vertical: true, style_class: 'ai-limits-details', x_expand: true, visible: false});
-        this.actor.add_child(this.details);
-        this.metadata = label(this.details, 'ai-limits-detail');
-        this.detailsButton.connect('clicked', () => {
-            this.details.visible = !this.details.visible;
-            this.detailsButton.label = this.details.visible ? 'Detalhes da coleta ▾' : 'Detalhes da coleta ▸';
-        });
+        const heading = new St.BoxLayout({style_class: 'ai-limits-card-heading', x_expand: true});
+        this.actor.add_child(heading);
+        this.dot = makeLabel(heading, 'ai-limits-provider-dot', {text: '●'});
+        this.provider = makeLabel(heading, 'ai-limits-provider-name');
+        heading.add_child(new St.Widget({x_expand: true}));
+        this.plan = makeLabel(heading, 'ai-limits-plan');
+        this.label = makeLabel(this.actor, 'ai-limits-account-label');
+        this.metadata = makeLabel(this.actor, 'ai-limits-metadata');
+        this.error = makeLabel(this.actor, 'ai-limits-error');
+        this.retry = makeLabel(this.actor, 'ai-limits-retry');
+        this.empty = makeLabel(this.actor, 'ai-limits-empty');
         this.windows = new Map();
-        this.update(view);
+        this.update(account, nowMs);
     }
 
-    update(view) {
-        this.view = view;
-        this.title.text = view.title;
-        this.badge.gicon = this.iconForProvider(view.provider);
-        this.badge.accessible_name = view.provider === 'claude' ? 'Claude' : 'Codex';
-        this.mode.text = view.windows[0]?.mode === 'used' ? '% usado' : '% restante';
-        this.metadata.text = view.metadata ?? '';
-        const warning = view.warning ?? view.error ?? '';
-        this.warning.text = warning ? (/429/.test(warning) ? '⚠ Consulta limitada · último dado mantido' : '⚠ Consulta indisponível · veja os detalhes') : '';
-        this.warning.accessible_name = warning;
-        this.warning.visible = Boolean(this.warning.text);
-        this.empty.text = view.noLimits ?? '';
-        this.empty.visible = Boolean(this.empty.text);
-        const ids = new Set(view.windows.map(w => w.id));
+    update(account, nowMs = Date.now()) {
+        this.account = account;
+        const view = this.snapshotApi.buildAccountCardView(account, nowMs);
+        this.dot.set_style(`color: ${view.providerColor};`);
+        this.provider.text = view.providerLabel;
+        this.plan.text = view.plan ?? '';
+        this.plan.visible = Boolean(view.plan);
+        this.label.text = view.label;
+        for (const [actor, text] of [[this.metadata, view.metadata], [this.error, view.error],
+            [this.retry, view.retryText], [this.empty, view.emptyText]]) {
+            actor.text = text ?? '';
+            actor.visible = Boolean(text);
+        }
+
+        const windows = view.emptyText ? [] : view.windows;
+        const ids = new Set(windows.map(window => window.id));
         for (const [id, row] of this.windows) {
             if (!ids.has(id)) {
                 row.actor.destroy();
-                row.detail.destroy();
                 this.windows.delete(id);
             }
         }
-        for (const [index, window] of view.windows.entries()) {
-            let row = this.windows.get(window.id);
-            if (!row) {
-                const actor = new St.BoxLayout({vertical: true, style_class: 'ai-limits-window', x_expand: true});
-                const line = new St.BoxLayout({style_class: 'ai-limits-window-heading', x_expand: true});
-                actor.add_child(line);
-                const heading = label(line, 'ai-limits-window-name');
-                const percent = label(line, 'ai-limits-percent');
-                percent.x_expand = false;
-                const track = new St.Widget({style_class: 'ai-limits-track', x_expand: true});
-                const fill = new St.Widget({style_class: 'ai-limits-fill'});
-                track.add_child(fill);
-                actor.add_child(track);
-                row = {actor, heading, percent, track, fill, detail: label(this.details, 'ai-limits-detail'), time: label(actor, 'ai-limits-window-time'), calendar: label(actor, 'ai-limits-window-time')};
-                track.connect('notify::width', () => {
-                    if (row.window && track.get_stage())
-                        fill.set_width(Math.max(0, track.width * row.window.fillRatio));
-                });
-                this.windowBox.add_child(actor);
-                this.windows.set(window.id, row);
-            }
+        windows.forEach((window, index) => {
+            const row = this.windows.get(window.id) ?? this._createRow(window.id);
             row.window = window;
-            row.heading.text = window.label;
-            row.percent.text = `${window.percent}%`;
-            row.percent.style_class = `ai-limits-percent ai-limits-text-${window.severity}`;
-            row.track.style_class = `ai-limits-track ai-limits-${window.severity}`;
-            // Reading width before an actor is attached to a stage forces a
-            // premature theme lookup in St. Allocation updates size later.
-            if (row.track.get_stage())
-                row.fill.set_width(Math.max(0, row.track.width * window.fillRatio));
+            row.title.text = window.title;
+            row.percent.text = window.percentText;
+            row.percent.set_style(`color: ${view.providerColor};`);
+            row.fill.set_style(`background-color: ${view.providerColor};`);
+            this._resizeFill(row);
+            row.reset.text = window.resetText;
+            row.reset.style_class = window.resetHighlighted
+                ? 'ai-limits-reset ai-limits-reset-highlighted'
+                : 'ai-limits-reset';
+            row.tooltip.text = window.detailsText;
             row.actor.accessible_name = window.accessibleText;
-            row.detail.text = `${window.sourceText} · ${window.severity === 'critical' ? 'Consumo crítico' : window.severity === 'warning' ? 'Consumo elevado' : 'Consumo normal'}`;
-            this.windowBox.set_child_at_index(row.actor, index);
-        }
-        this.updateTime(this.clock());
+            // Rows sit after the fixed heading and message labels.
+            this.actor.set_child_at_index(row.actor, 6 + index);
+        });
+    }
+
+    _createRow(id) {
+        const actor = new St.BoxLayout({vertical: true, style_class: 'ai-limits-window', x_expand: true, can_focus: true});
+        const line = new St.BoxLayout({style_class: 'ai-limits-window-heading', x_expand: true});
+        actor.add_child(line);
+        const title = makeLabel(line, 'ai-limits-window-title', {x_expand: true});
+        const percent = makeLabel(line, 'ai-limits-percent');
+        const track = new St.Widget({style_class: 'ai-limits-track', x_expand: true});
+        const fill = new St.Widget({style_class: 'ai-limits-fill'});
+        track.add_child(fill);
+        actor.add_child(track);
+        const reset = makeLabel(actor, 'ai-limits-reset');
+        const row = {actor, title, percent, track, fill, reset, tooltip: attachTooltip(actor, '')};
+        track.connect('notify::width', () => this._resizeFill(row));
+        this.actor.add_child(actor);
+        this.windows.set(id, row);
+        return row;
+    }
+
+    _resizeFill(row) {
+        // Reading width before an actor is attached to a stage forces a
+        // premature theme lookup in St. Allocation updates size later.
+        if (row.window && row.track.get_stage())
+            row.fill.set_width(Math.max(0, row.track.width * row.window.fraction));
     }
 
     updateTime(nowMs) {
-        this.retry.text = this.view.nextRetryAt ? `Próxima tentativa às ${new Date(this.view.nextRetryAt).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}` : '';
-        this.retry.visible = Boolean(this.retry.text);
-        for (const row of this.windows.values()) {
-            const w = row.window;
-            const windowView = this.snapshotApi.buildWindowView(w, w.mode, nowMs);
-            const freshness = windowView.state;
-            const expired = freshness === 'expired';
-            const known = freshness === 'last-known';
-            const state = expired ? 'Reset vencido; aguardando confirmação' : known ? 'Último conhecido' : 'Observado';
-            const ageText = windowView.ageText;
-            const delta = Date.parse(w.resetsAt) - nowMs;
-            const minutes = Math.max(1, Math.ceil(delta / 60000));
-            const duration = minutes >= 1440 ? `${Math.floor(minutes / 1440)}d ${Math.floor(minutes % 1440 / 60)}h` : minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}min` : `${minutes}min`;
-            const reset = expired ? 'Reset vencido · aguardando confirmação' : Number.isFinite(delta) ? `Renova em ${duration}` : 'Reset não informado';
-            row.time.text = `${reset}${known && !expired ? ' · último conhecido' : ''}`;
-            row.calendar.visible = Number.isFinite(delta);
-            if (row.calendar.visible) {
-                const date = new Date(w.resetsAt);
-                const today = new Date(nowMs);
-                const sameDay = date.getFullYear() === today.getFullYear() &&
-                    date.getMonth() === today.getMonth() && date.getDate() === today.getDate();
-                const weekday = date.toLocaleDateString('pt-BR', {weekday: 'long'});
-                const day = date.toLocaleDateString('pt-BR', {
-                    day: '2-digit', month: '2-digit',
-                    ...(date.getFullYear() === today.getFullYear() ? {} : {year: '2-digit'}),
-                });
-                const time = date.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
-                row.calendar.text = sameDay ? `Hoje às ${time}` : `${weekday}, ${day} às ${time}`;
-            } else {
-                row.calendar.text = '';
-            }
-            row.detail.text = `${windowView.label} · ${windowView.sourceText}\n${state} · ${ageText}\n${windowView.resetText}`;
-            row.track.opacity = expired ? 80 : known ? 160 : 255;
-            row.actor.accessible_name = `${windowView.accessibleText} ${row.time.text}. ${row.calendar.text}`;
-        }
-        this.metadata.text = [this.view.metadata, this.view.warning ?? this.view.error].filter(Boolean).join('\n');
+        this.update(this.account, nowMs);
     }
 
     destroy() {
@@ -142,47 +148,66 @@ export class AccountCard {
 }
 
 export class Dashboard {
-    constructor(menu, onRefresh, onConfigure, iconForProvider = () => null, snapshotApi) {
-        this.iconForProvider = iconForProvider;
+    constructor(menu, {onConfigure, onRefresh, onRestart}, snapshotApi) {
         this.snapshotApi = snapshotApi;
         this.cards = new Map();
-        this.item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
-        this.scroll = new St.ScrollView({style_class: 'ai-limits-dashboard', overlay_scrollbars: true, x_expand: true});
-        this.content = new St.BoxLayout({vertical: true, x_expand: true});
-        this.heading = label(this.content, 'ai-limits-dashboard-title');
-        this.heading.text = 'Limites de uso';
-        this.status = label(this.content, 'ai-limits-detail');
+        this.item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false, style_class: 'ai-limits-menu-item'});
+        this.box = new St.BoxLayout({vertical: true, style_class: 'ai-limits-popup', x_expand: true});
+        this.item.add_child(this.box);
+
+        const header = new St.BoxLayout({style_class: 'ai-limits-header', x_expand: true});
+        const heading = new St.BoxLayout({vertical: true, style_class: 'ai-limits-heading', x_expand: true});
+        makeLabel(heading, 'ai-limits-heading-title', {text: 'AI Limits'});
+        this.status = makeLabel(heading, 'ai-limits-status');
+        header.add_child(heading);
+        const actions = new St.BoxLayout({style_class: 'ai-limits-header-actions'});
+        this.configureButton = makeHeaderAction('preferences-system-symbolic', 'Configurar…', onConfigure);
+        this.refreshButton = makeHeaderAction('view-refresh-symbolic', 'Atualizar agora', onRefresh);
+        this.restartButton = makeHeaderAction('system-reboot-symbolic', 'Reiniciar serviço de coleta', onRestart);
+        for (const button of [this.configureButton, this.refreshButton, this.restartButton])
+            actions.add_child(button);
+        header.add_child(actions);
+        this.box.add_child(header);
+
+        this.empty = makeLabel(this.box, 'ai-limits-empty', {visible: false});
+        this.scroll = new St.ScrollView({style_class: 'ai-limits-scroll', overlay_scrollbars: true, x_expand: true});
+        this.content = new St.BoxLayout({vertical: true, style_class: 'ai-limits-cards', x_expand: true});
         this.scroll.set_child(this.content);
-        this.item.add_child(this.scroll);
+        this.box.add_child(this.scroll);
         menu.addMenuItem(this.item);
-        this.refreshItem = new PopupMenu.PopupMenuItem('Atualizar agora');
-        this.refreshItem.connect('activate', onRefresh);
-        menu.addMenuItem(this.refreshItem);
-        this.configureItem = new PopupMenu.PopupMenuItem('Configurar…');
-        this.configureItem.connect('activate', onConfigure);
-        menu.addMenuItem(this.configureItem);
     }
 
-    update(view) {
-        this.status.text = [view.statusText, view.emptyText].filter(Boolean).join('\n');
-        const accounts = view.groups.flatMap(g => g.accounts);
-        const ids = new Set(accounts.map(a => a.id));
+    setRefreshSensitive(sensitive) {
+        setActionSensitive(this.refreshButton, sensitive);
+    }
+
+    setRestartSensitive(sensitive) {
+        setActionSensitive(this.restartButton, sensitive);
+    }
+
+    update(view, accounts, nowMs = Date.now()) {
+        this.status.text = view.statusText;
+        this.empty.text = view.emptyText ?? '';
+        this.empty.visible = Boolean(view.emptyText);
+        const visibleAccounts = view.emptyText ? [] : accounts;
+        this.scroll.visible = visibleAccounts.length > 0;
+        const ids = new Set(visibleAccounts.map(account => account.id));
         for (const [id, card] of this.cards) {
             if (!ids.has(id)) {
                 card.destroy();
                 this.cards.delete(id);
             }
         }
-        accounts.forEach((account, index) => {
+        visibleAccounts.forEach((account, index) => {
             let card = this.cards.get(account.id);
             if (!card) {
-                card = new AccountCard(account, Date.now, this.iconForProvider, this.snapshotApi);
+                card = new AccountCard(account, this.snapshotApi, nowMs);
                 this.cards.set(account.id, card);
                 this.content.add_child(card.actor);
             } else {
-                card.update(account);
+                card.update(account, nowMs);
             }
-            this.content.set_child_at_index(card.actor, index + 2);
+            this.content.set_child_at_index(card.actor, index);
         });
     }
 
@@ -196,7 +221,5 @@ export class Dashboard {
             card.destroy();
         this.cards.clear();
         this.item.destroy();
-        this.refreshItem.destroy();
-        this.configureItem.destroy();
     }
 }

@@ -1,84 +1,104 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { St, PopupMenu, Widget, textTree } from './gnome-widgets.js';
+import { St, PopupMenu, textTree } from './gnome-widgets.js';
 import * as snapshotApi from '../test-support/snapshot-model.js';
-const { buildMenuView, buildSnapshotView, formatReset, formatSnapshotAge, windowObservationState } = snapshotApi;
+const { buildMenuView, buildSnapshotView } = snapshotApi;
 const source = await readFile(new URL('../gnome/dashboard.js', import.meta.url), 'utf8');
-const { Dashboard, AccountCard } = new Function('St', 'PopupMenu', 'snapshotApi', `${source.replace(/^import .*;\n/gm, '').replaceAll('export class ', 'class ')}; return {Dashboard, AccountCard};`)(St, PopupMenu, snapshotApi);
+const tooltips = [];
+const Main = { uiGroup: { add_child(child) { tooltips.push(child); } } };
+const { Dashboard, AccountCard } = new Function('St', 'PopupMenu', 'Main', `${source.replace(/^import .*;\n/gm, '').replaceAll('export class ', 'class ').replaceAll('export function ', 'function ')}; return {Dashboard, AccountCard};`)(St, PopupMenu, Main);
 const now = Date.parse('2026-10-21T12:00:00Z');
 const account = { id: 'a', label: 'Claude pessoal', provider: 'claude', status: 'error', error: '429', displayMode: 'remaining',
-  collection: { nextRetryAt: '2026-10-21T12:15:00Z', identityConfidence: 'profile' }, windows: [
+  plan: 'max', email: 'pessoa@example.test', source: 'statusLine', checkedAt: '2026-10-21T11:57:00Z',
+  collection: { nextRetryAt: '2026-10-21T12:15:00Z', identityConfidence: 'confirmed' }, windows: [
     {id: 's', label: 'Sessão', kind: 'session', usedPercent: 37, remainingPercent: 63, windowDurationMins: 300, observedAt: '2026-10-21T11:57:00Z', source: 'claude-statusline', resetsAt: '2026-10-21T13:00:00Z'},
-    {id: 'w', label: 'Semanal', kind: 'weekly', usedPercent: 86, remainingPercent: 14, observedAt: '2026-10-21T11:57:00Z', source: 'claude-statusline'}] };
-const view = (accounts = [account]) => buildMenuView(buildSnapshotView(JSON.stringify({version: 1, createdAt: new Date(now).toISOString(), accounts}), now), now);
-test('cards render independent session and weekly bars, source, age and retry warning', () => {
-  const card = new AccountCard(view().groups[0].accounts[0], () => now, () => null, snapshotApi);
-  assert.match(textTree(card.actor), /Sessão \(5h\).*63%/);
-  assert.match(textTree(card.actor), /Semanal.*14%/);
-  assert.match(textTree(card.actor), /429/); assert.match(textTree(card.actor), /Próxima tentativa/);
-  assert.match(textTree(card.actor), /CLI Claude/); assert.match(textTree(card.actor), /3min/);
+    {id: 'w', label: 'Semanal', kind: 'weekly', usedPercent: 86, remainingPercent: 14, windowDurationMins: 10080, observedAt: '2026-10-21T11:57:00Z', source: 'claude-statusline'}] };
+const snapshot = (accounts = [account]) => buildSnapshotView(JSON.stringify({version: 1, createdAt: new Date(now).toISOString(), accounts}), now);
+const cardAccount = (value = account) => snapshot([value]).accounts[0];
+
+test('card mirrors the Cinnamon layout: provider, plan, account, metadata, error, retry and stacked windows', () => {
+  const card = new AccountCard(cardAccount(), snapshotApi, now);
+  assert.equal(card.dot.text, '●');
+  assert.match(card.dot.style, /#f47b53/);
+  assert.equal(card.provider.text, 'Claude');
+  assert.equal(card.plan.text, 'Max');
+  assert.equal(card.label.text, 'Claude pessoal');
+  assert.match(card.metadata.text, /^pessoa@example\.test · Fonte: status line local · leitura há 3min$/);
+  assert.equal(card.error.text, '429');
+  assert.match(card.retry.text, /^Nova tentativa em 15min\./);
+  assert.equal(card.empty.visible, false);
   const session = card.windows.get('s'); const weekly = card.windows.get('w');
-  session.track.emit('notify::width'); weekly.track.emit('notify::width');
-  assert.equal(session.fill.width, 126); assert.equal(weekly.fill.width, 28.000000000000004);
-  assert.match(weekly.track.style_class, /warning/);
-  assert.match(session.actor.accessible_name, /Último conhecido/);
-  card.update(view([{...account, displayMode: 'used'}]).groups[0].accounts[0]);
-  session.track.emit('notify::width'); assert.equal(session.fill.width, 74);
-  assert.match(weekly.track.style_class, /warning/);
-  card.updateTime(now + 3600000); assert.match(textTree(card.actor), /aguardando confirmação/);
-  card.destroy(); assert.equal(session.track.signals.size, 0);
-});
-test('reset calendar labels today as Hoje and keeps the date on other days', () => {
-  const today = new AccountCard(view().groups[0].accounts[0], () => now, () => null, snapshotApi);
-  assert.match(today.windows.get('s').calendar.text, /^Hoje às \d{2}:\d{2}$/);
-  today.destroy();
-  const later = {...account, windows: [{...account.windows[0], resetsAt: new Date(now + 30 * 3600000).toISOString()}]};
-  const card = new AccountCard(view([later]).groups[0].accounts[0], () => now, () => null, snapshotApi);
-  assert.doesNotMatch(card.windows.get('s').calendar.text, /Hoje/);
-  assert.match(card.windows.get('s').calendar.text, /^.+?, \d{2}\/\d{2}(?:\/\d{2})? às \d{2}:\d{2}$/);
+  assert.equal(session.title.text, 'Sessão (5 h)');
+  assert.equal(weekly.title.text, 'Semanal (1 sem)');
+  assert.equal(session.percent.text, '63% restante');
+  assert.match(session.percent.style, /#f47b53/);
+  assert.match(session.fill.style, /#f47b53/);
+  assert.match(session.reset.text, /^Hoje às \d{2}:\d{2} · (leitura|último dado) há 3min$/);
+  assert.match(session.tooltip.text, /^Fonte: Claude · sessão local\nLeitura: há 3min\nReset: Redefine em 1h/);
+  assert.equal(weekly.reset.text.startsWith('Reset não informado'), true);
+  // Windows are stacked rows of the card, after the heading and message labels.
+  assert.equal(card.actor.vertical, true);
+  assert.deepEqual(card.actor.children.slice(6), [session.actor, weekly.actor]);
+  session.track.emit('notify::width');
+  assert.equal(session.fill.width, 126);
   card.destroy();
 });
-test('dashboard reconciles by identity without replacing focused footer, scroll or surviving cards', () => {
+
+test('card updates in place for display mode, countdown and removed windows', () => {
+  const card = new AccountCard(cardAccount(), snapshotApi, now);
+  const session = card.windows.get('s');
+  card.update(cardAccount({...account, displayMode: 'used'}), now);
+  assert.equal(card.windows.get('s'), session);
+  assert.equal(session.percent.text, '37% usado');
+  session.track.emit('notify::width');
+  assert.equal(session.fill.width, 74);
+  card.updateTime(now + 2 * 3600000);
+  assert.match(session.reset.text, /aguardando confirmação/);
+  assert.match(session.reset.style_class, /highlighted/);
+  card.update(cardAccount({...account, windows: [account.windows[1]]}), now);
+  assert.equal(session.actor.destroyed, true);
+  assert.equal(card.windows.size, 1);
+  card.destroy();
+});
+
+test('account without windows shows the Cinnamon no-limits message', () => {
+  const card = new AccountCard(cardAccount({...account, status: 'ok', error: undefined, windows: []}), snapshotApi, now);
+  assert.equal(card.empty.text, 'Esta conta não reportou limites.');
+  assert.equal(card.empty.visible, true);
+  assert.equal(card.error.visible, false);
+  card.destroy();
+});
+
+test('dashboard header has the Cinnamon actions and cards reconcile by identity', () => {
   const menu = { items: [], addMenuItem(item) { this.items.push(item); } };
-  const dashboard = new Dashboard(menu, () => {}, () => {}, () => null, snapshotApi);
-  dashboard.update(view()); const first = dashboard.cards.get('a');
-  const footer = dashboard.refreshItem; const scroll = dashboard.scroll; scroll.position = 80; footer.focused = true;
-  dashboard.update(view([{...account, windows: [{...account.windows[0], usedPercent: 40, remainingPercent: 60}]}]));
-  dashboard.updateTime(now + 15000);
-  assert.equal(dashboard.cards.get('a'), first); assert.equal(dashboard.refreshItem, footer);
-  assert.equal(footer.focused, true); assert.equal(scroll.position, 80);
-  dashboard.update(view([account, {...account, id: 'b', label: 'Trabalho'}]));
-  assert.equal(dashboard.cards.get('a'), first); assert.equal(dashboard.cards.size, 2);
-  dashboard.update(view([{...account, id: 'b'}])); assert.equal(first.actor.destroyed, true);
+  const calls = [];
+  const dashboard = new Dashboard(menu, {
+    onConfigure: () => calls.push('configure'), onRefresh: () => calls.push('refresh'), onRestart: () => calls.push('restart'),
+  }, snapshotApi);
+  assert.deepEqual([dashboard.configureButton, dashboard.refreshButton, dashboard.restartButton].map(b => b.accessible_name),
+    ['Configurar…', 'Atualizar agora', 'Reiniciar serviço de coleta']);
+  for (const button of [dashboard.configureButton, dashboard.refreshButton, dashboard.restartButton]) button.emit('clicked');
+  assert.deepEqual(calls, ['configure', 'refresh', 'restart']);
+  dashboard.setRefreshSensitive(false);
+  assert.equal(dashboard.refreshButton.reactive, false);
+
+  const current = snapshot();
+  dashboard.update(buildMenuView(current, now), current.accounts, now);
+  assert.match(textTree(dashboard.box), /AI Limits/);
+  assert.match(dashboard.status.text, /Cache atualizado/);
+  const first = dashboard.cards.get('a');
+  const scroll = dashboard.scroll; scroll.position = 80;
+  const two = snapshot([account, {...account, id: 'b', label: 'Trabalho'}]);
+  dashboard.update(buildMenuView(two, now), two.accounts, now);
+  assert.equal(dashboard.cards.get('a'), first); assert.equal(dashboard.cards.size, 2); assert.equal(scroll.position, 80);
+  const onlyB = snapshot([{...account, id: 'b'}]);
+  dashboard.update(buildMenuView(onlyB, now), onlyB.accounts, now);
+  assert.equal(first.actor.destroyed, true);
+
+  const empty = buildSnapshotView(null, now);
+  dashboard.update(buildMenuView(empty, now), [], now);
+  assert.equal(dashboard.empty.text, 'Nenhum dado no cache.');
+  assert.equal(dashboard.scroll.visible, false);
   dashboard.destroy(); assert.equal(dashboard.cards.size, 0);
-});
-
-test('future timestamps never become an observed-current label during countdown updates', () => {
-  const a={...account,windows:[{...account.windows[0],observedAt:'2026-10-22T12:00:00Z'}]};
-  const card=new AccountCard(view([a]).groups[0].accounts[0],()=>now,()=>null,snapshotApi);
-  assert.match(card.windows.get('s').time.text,/último conhecido/i);
-  card.updateTime(now+15000);assert.match(card.windows.get('s').time.text,/último conhecido/i);card.destroy();
-});
-
-test('compact card keeps collection details collapsed and preserves disclosure while quota updates', () => {
-  const card = new AccountCard(view().groups[0].accounts[0], () => now, () => null, snapshotApi);
-  assert.equal(card.details.visible, false);
-  assert.equal(card.windowBox.vertical, false);
-  assert.equal(card.badge.icon_size, 20);
-  assert.equal(card.mode.text, '% restante');
-  assert.equal(card.windows.get('s').percent.text, '63%');
-  assert.match(card.windows.get('s').time.text, /Renova em 1h 0min/);
-  assert.match(card.windows.get('s').calendar.text, /^Hoje às /);
-  assert.equal(card.windows.get('w').calendar.visible, false);
-  assert.equal(card.windows.get('s').detail.parent, card.details);
-  card.detailsButton.emit('clicked');
-  assert.equal(card.details.visible, true);
-  card.update(view([{...account,displayMode:'used'}]).groups[0].accounts[0]);
-  assert.equal(card.details.visible, true);
-  assert.equal(card.mode.text, '% usado');
-  assert.equal(card.windows.get('s').percent.text, '37%');
-  assert.match(card.metadata.text, /429/);
-  card.detailsButton.emit('clicked'); assert.equal(card.details.visible, false);
-  card.destroy();
 });

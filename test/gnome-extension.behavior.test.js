@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { isUsageCacheEvent } from "../gnome/cache-events.js";
 
-const extensionSource = await readFile(new URL("../gnome/extension.js", import.meta.url), "utf8");
+const extensionSource = await readFile(new URL("../gnome/main.js", import.meta.url), "utf8");
 
 // Shell resource:/// imports are unavailable to Node, so execute the production
 // class body with controllable stand-ins for the GNOME APIs at its boundary.
@@ -35,6 +35,11 @@ class MenuItem {
 class Menu {
   constructor() {
     this.items = [];
+    this.handlers = new Map();
+  }
+
+  connect(signal, callback) {
+    this.handlers.set(signal, callback);
   }
 
   removeAll() {
@@ -74,6 +79,7 @@ function makeHarness() {
   const subprocesses = [];
   const notifications = [];
   const requests = [];
+  const refreshResults = new Map();
   const monitor = new FileMonitor();
   const cacheDirectory = "/tmp/opencode-ai-limits-test/ai-limits-widget";
   let snapshot = { createdAt: "before-refresh" };
@@ -171,10 +177,7 @@ function makeHarness() {
   };
   const executableSource = extensionSource
     .replace(/^import .*;\n/gm, "")
-    .replace(
-      "export default class AiLimitsMonitorExtension extends Extension {",
-      "class AiLimitsMonitorExtension extends Extension {",
-    );
+    .replace("export class AiLimitsMonitor {", "class AiLimitsMonitor {");
   const ExtensionUnderTest = new Function(
     "Gio",
     "GLib",
@@ -187,9 +190,10 @@ function makeHarness() {
     "isUsageCacheEvent",
     "globalThis",
     "Dashboard",
+    "attachTooltip",
     "submitRefreshRequest",
     "readRefreshResult",
-    `${executableSource}\nreturn AiLimitsMonitorExtension;`,
+    `${executableSource}\nreturn AiLimitsMonitor;`,
   )(
     Gio,
     GLib,
@@ -206,14 +210,17 @@ function makeHarness() {
       buildSnapshotView: (contents) => contents === null ? { createdAt: null } : JSON.parse(contents),
     }},
     class {
-      constructor(menu, refresh, configure) {
-        this.refreshItem = new MenuItem('Atualizar agora'); this.refreshItem.connect('activate', refresh); menu.addMenuItem(this.refreshItem);
-        const item = new MenuItem('Configurar…'); item.connect('activate', configure); menu.addMenuItem(item);
+      constructor(menu, {onConfigure, onRefresh, onRestart}) {
+        this.buttons = [['Configurar…', onConfigure], ['Atualizar agora', onRefresh], ['Reiniciar serviço de coleta', onRestart]]
+          .map(([text, callback]) => { const item = new MenuItem(text); item.connect('activate', callback); menu.addMenuItem(item); return item; });
       }
-      update() {} updateTime() {} destroy() {}
+      setRefreshSensitive(value) { this.buttons[1].setSensitive(value); }
+      setRestartSensitive(value) { this.buttons[2].setSensitive(value); }
+      update(view, accounts) { this.updated = {view, accounts}; } updateTime() {} destroy() {}
     },
+    (actor, text) => { actor.tooltipText = text; },
     (root, request, callback) => requests.push({root, request, callback}),
-    () => Promise.resolve(null),
+    (root, id) => Promise.resolve(refreshResults.get(id) ?? null),
   );
 
   return {
@@ -223,6 +230,7 @@ function makeHarness() {
     notifications,
     requests,
     removedSources,
+    refreshResults,
     setSnapshot(value) {
       snapshot = value;
     },
@@ -242,13 +250,16 @@ function makeEnabledExtension(harness) {
     _refreshTimeoutId: 0,
     _cacheMonitor: null,
     _cacheMonitorId: 0,
-    _refreshItem: null,
+    _refreshResultPollId: 0,
     _pendingRefresh: null,
+    _restartingService: false,
     _snapshot: { createdAt: "before-refresh" },
     _indicator: { menu: new Menu(), destroy() { this.destroyed = true; } },
+    _dashboard: null,
     _panelBox: { add_child() {} },
     _panelEntries: [],
     dir: { get_child: (name) => ({ name }) },
+    rootDir: { get_child: (name) => ({ get_path: () => `/root/${name}` }) },
   });
   return extension;
 }
@@ -275,9 +286,9 @@ test("manualRefreshSubmitsOnceAndOnlyCorrelatedResultCompletesWithoutRestart", (
   harness.setSnapshot({createdAt: 'another', refreshResult: {id: harness.requests[0].request.id, accounts: [{accountId: 'a', outcome: 'blocked', nextRetryAt: '2026-10-21T13:00:00Z'}]}}); extension._refresh();
 
   assert.equal(extension._pendingRefresh, null);
-  assert.equal(extension._refreshItem.sensitive, true);
-  assert.match(harness.notifications[0].title, /processada/);
-  assert.match(harness.notifications[0].body, /Próxima tentativa/);
+  assert.equal(refreshItem.sensitive, true);
+  assert.equal(harness.notifications[0].title, "Atualização concluída.");
+  assert.match(harness.notifications[0].body, /bloqueadas: 1/);
 });
 
 test("panelRendererAlignsAccountWidgetsUsingClutter", () => {
@@ -303,7 +314,7 @@ test("manualRefreshReportsPrivateWriteFailureAndTimeout", () => {
   harness.requests[0].callback(new Error('Permission denied'));
 
   assert.equal(extension._pendingRefresh, null);
-  assert.equal(extension._refreshItem.sensitive, true);
+  assert.equal(refreshItem.sensitive, true);
   assert.equal(harness.notifications[0].title, "Não foi possível atualizar os limites.");
 
   extension._renderMenu();
@@ -359,4 +370,61 @@ test("cacheMonitorFiltersAndDebouncesUsageChangesAndCleansUpOnDisable", () => {
   assert.equal(harness.monitor.cancelled, true);
   assert.equal(extension._cacheMonitor, null);
   assert.equal(extension._indicator, null);
+});
+
+test("refreshResultIsPolledEverySecondLikeCinnamon", async () => {
+  const harness = makeHarness();
+  const extension = makeEnabledExtension(harness);
+  extension._renderMenu();
+  const refreshItem = extension._indicator.menu.items.find((item) => item.text === "Atualizar agora");
+  refreshItem.activate();
+  const poll = harness.sources.get(extension._refreshResultPollId);
+  assert.equal(poll.duration, 1);
+
+  assert.equal(poll.callback(), true);
+  await Promise.resolve();
+  assert.notEqual(extension._pendingRefresh, null);
+
+  const id = harness.requests[0].request.id;
+  harness.refreshResults.set(id, {id, accounts: [{accountId: "a", outcome: "queried"}, {accountId: "b", outcome: "error", error: "429"}]});
+  poll.callback();
+  await new Promise(setImmediate);
+  assert.equal(extension._pendingRefresh, null);
+  assert.equal(refreshItem.sensitive, true);
+  assert.match(harness.notifications[0].body, /Consultadas: 1;.*erros: 1\. b: 429/);
+  assert.equal(harness.sources.has(extension._refreshResultPollId), false);
+});
+
+test("restartActionRestartsTheUserServiceOnceAndReportsTheOutcome", () => {
+  const harness = makeHarness();
+  const extension = makeEnabledExtension(harness);
+  extension._renderMenu();
+  const restartItem = extension._indicator.menu.items.find((item) => item.text === "Reiniciar serviço de coleta");
+  restartItem.activate();
+  restartItem.activate();
+
+  assert.equal(harness.subprocesses.length, 1);
+  assert.deepEqual(harness.subprocesses[0].command, ["systemctl", "--user", "restart", "ai-limits-widget.service"]);
+  assert.equal(restartItem.sensitive, false);
+  harness.subprocesses[0].completion(harness.subprocesses[0], true);
+  assert.equal(restartItem.sensitive, true);
+  assert.equal(harness.notifications[0].title, "Serviço reiniciado.");
+
+  restartItem.activate();
+  harness.subprocesses[1].completion(harness.subprocesses[1], new Error("unit not found"));
+  assert.equal(harness.notifications[1].title, "Não foi possível reiniciar o serviço.");
+});
+
+test("dashboardReceivesOnlySupportedAccountsAndMenuOpeningRereadsCache", () => {
+  const harness = makeHarness();
+  harness.setSnapshot({ createdAt: "now", accounts: [{ id: "a", status: "ok" }, { id: "b", status: "unsupported" }] });
+  const extension = makeEnabledExtension(harness);
+  extension.metadata = { name: "Monitor" };
+  extension.enable();
+  assert.deepEqual(extension._dashboard.updated.accounts.map((account) => account.id), ["a"]);
+
+  harness.setSnapshot({ createdAt: "later", accounts: [{ id: "c", status: "ok" }] });
+  extension._indicator.menu.handlers.get("open-state-changed")(extension._indicator.menu, true);
+  assert.deepEqual(extension._dashboard.updated.accounts.map((account) => account.id), ["c"]);
+  extension.disable();
 });

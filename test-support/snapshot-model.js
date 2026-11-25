@@ -1,6 +1,7 @@
 import "../shared/snapshot.js";
 
 export const {
+  buildAccountCardView,
   buildMenuView,
   buildPanelLabels,
   buildSnapshotView,

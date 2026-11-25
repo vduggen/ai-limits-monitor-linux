@@ -57,24 +57,21 @@ editor para localizar essa configuração.
 
 ## Instalar e habilitar
 
-Copie a extensão e o editor compartilhado para o diretório de extensões do
-usuário. `configure.py`, `config_paths.py`, `account_config.py` e
-`project_updates.py` precisam ficar lado a lado. O contrato compartilhado
-`shared/snapshot.js` é instalado como `snapshot.js`; dashboard, pedido de refresh
-e stylesheet são recursos runtime da extensão e também fazem parte da
-sincronização do frontend instalado:
+Na raiz do clone, instale a extensão e o editor compartilhado no diretório de
+extensões do usuário:
 
 ```bash
-UUID=ai-limits-monitor@vlduggen
-TARGET="$HOME/.local/share/gnome-shell/extensions/$UUID"
-mkdir -p "$TARGET"
-cp gnome/metadata.json gnome/extension.js gnome/cache-events.js \
-  gnome/dashboard.js gnome/refresh-request.js gnome/stylesheet.css \
-  gnome/claude.svg gnome/codex.svg "$TARGET/"
-cp shared/snapshot.js "$TARGET/snapshot.js"
-cp cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py \
-  cinnamon/project_updates.py "$TARGET/"
+cd ~/ai-limits-monitor-linux
+scripts/gnome-extension.sh install
 ```
+
+A extensão usa um carregador versionado ([ADR-003](../docs/adr/003-carregador-versionado-gnome.md)).
+Na raiz de `~/.local/share/gnome-shell/extensions/ai-limits-monitor@vlduggen`
+ficam `metadata.json`, o carregador `extension.js` e o editor (`configure.py`,
+`config_paths.py`, `account_config.py`, `project_updates.py`). O código do painel,
+o `stylesheet.css`, os ícones e `shared/snapshot.js` (como `snapshot.js`) ficam
+em `versions/<id>/`, e `current-version` indica a versão ativa. O instalador
+mantém só a versão atual e a anterior.
 
 Na primeira instalação, encerre e inicie novamente a sessão GNOME para que o
 Shell descubra a nova extensão. Depois habilite-a:
@@ -111,8 +108,10 @@ Separadamente, **Sincronizar interface instalada** substitui, após confirmaçã
 todo o pacote runtime desta extensão pelos arquivos atuais do clone. A ação só
 prossegue com o clone limpo e atualizado; se houver commits upstream pendentes,
 use **Aplicar atualização** primeiro. Ela não instala dependências, não compila e
-não reinicia o serviço. Para ativar JavaScript já carregado, talvez seja necessário
-recarregar a sessão do GNOME.
+não reinicia o serviço. Depois, **Recarregar extensão** ativa a versão nova sem
+sair da sessão. O botão aparece quando o GNOME Shell em execução já carregou o
+carregador versionado; logo após a primeira instalação dele, encerre a sessão
+uma vez.
 
 ## Atualizar
 
@@ -121,20 +120,15 @@ consultas e definir intervalo remoto por conta. O intervalo legado explícito
 continua valendo até você optar pela migração. A integração Claude é habilitada
 separadamente, após preview e confirmação; Salvar contas não modifica a statusline.
 
-Na raiz do clone atualizado, copie novamente os arquivos para o mesmo diretório:
+Na raiz do clone atualizado, instale de novo:
 
 ```bash
-UUID=ai-limits-monitor@vlduggen
-TARGET="$HOME/.local/share/gnome-shell/extensions/$UUID"
-gnome-extensions disable "$UUID"
-cp gnome/metadata.json gnome/extension.js gnome/cache-events.js \
-  gnome/dashboard.js gnome/refresh-request.js gnome/stylesheet.css \
-  gnome/claude.svg gnome/codex.svg "$TARGET/"
-cp shared/snapshot.js "$TARGET/snapshot.js"
-cp cinnamon/configure.py cinnamon/config_paths.py cinnamon/account_config.py \
-  cinnamon/project_updates.py "$TARGET/"
-gnome-extensions enable "$UUID"
+scripts/gnome-extension.sh install
 ```
+
+Com o carregador já ativo na sessão, o script recarrega a extensão e a versão
+nova entra em uso na hora, sem logout. Se a sessão ainda roda a extensão anterior
+ao carregador, o script avisa que é preciso encerrar a sessão uma vez.
 
 Atualize o daemon separadamente com `pnpm install`, `pnpm build` e reinicie
 `systemctl --user restart ai-limits-widget.service` se o código do daemon mudou.
@@ -148,8 +142,7 @@ como bloqueio, não como quota nova. A extensão observa o cache com debounce de
 scroll, com contagem local de 15 segundos sem consultas. A ação fica desabilitada
 enquanto aguarda o resultado e informa falhas/timeout. Não é preciso
 fazer logout para alterar contas ou solicitar uma consulta. Ao instalar código
-JavaScript novo, use o fluxo de atualização acima; se o Shell mantiver o módulo
-antigo carregado, uma recarga da sessão poderá ser necessária uma única vez.
+JavaScript novo, use o fluxo de atualização acima.
 
 ### Claude: limites temporariamente indisponíveis
 
@@ -166,6 +159,20 @@ esse prazo. Outras falhas temporárias aguardam 5 minutos. As outras contas
 continuam sendo consultadas normalmente. Reiniciar o serviço não elimina o
 bloqueio que o próprio CLI lembra para a autenticação; não use reinícios
 repetidos para tentar contorná-lo.
+
+## Testar mudanças em um GNOME Shell aninhado
+
+Para validar uma mudança antes de instalá-la, abra um GNOME Shell aninhado em
+uma janela, com uma cópia isolada da extensão:
+
+```bash
+scripts/gnome-extension.sh nested            # janela 1366x768
+scripts/gnome-extension.sh nested 1920x1080
+```
+
+A cópia fica em `~/.cache/ai-limits-gnome-dev/` e só o Shell aninhado a usa;
+a sessão em uso e a extensão instalada não mudam. O popup lê o cache real do
+daemon. Erros da extensão aparecem no terminal.
 
 ## Remover
 

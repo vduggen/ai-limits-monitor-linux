@@ -348,6 +348,151 @@ var AiLimitsSnapshot = (function () {
         };
     }
 
+    var PROVIDER_LABELS = { claude: "Claude", codex: "Codex" };
+    var PROVIDER_COLORS = { claude: "#f47b53", codex: "#10a37f" };
+    var WINDOW_SOURCE_NAMES = {
+        "claude-statusline": "Claude · sessão local",
+        "claude-desktop": "Claude Desktop",
+        "claude-sdk": "Claude · consulta oficial",
+        "codex-rollout": "Codex · sessão local",
+        "codex-rpc": "Codex · consulta oficial",
+    };
+
+    function formatDuration(totalMinutes) {
+        var minutes = Math.max(0, Math.ceil(totalMinutes));
+        var days = Math.floor(minutes / (24 * 60));
+        var hours = Math.floor((minutes % (24 * 60)) / 60);
+        var remainingMinutes = minutes % 60;
+        if (days > 0)
+            return hours > 0 ? days + "d " + hours + "h" : days + "d";
+        if (hours > 0)
+            return remainingMinutes > 0 ? hours + "h " + remainingMinutes + "min" : hours + "h";
+        return remainingMinutes + "min";
+    }
+
+    function formatWindowDuration(window) {
+        if (!Number.isFinite(window.windowDurationMins) || window.windowDurationMins <= 0)
+            return "";
+        var minutes = window.windowDurationMins;
+        if (minutes % (7 * 24 * 60) === 0)
+            return minutes / (7 * 24 * 60) + " sem";
+        if (minutes % (24 * 60) === 0)
+            return minutes / (24 * 60) + " d";
+        if (minutes % 60 === 0)
+            return minutes / 60 + " h";
+        return minutes + " min";
+    }
+
+    function formatCompactReset(resetsAt, nowMs) {
+        nowMs = nowMs === undefined ? Date.now() : nowMs;
+        var timestamp = Date.parse(resetsAt);
+        if (!Number.isFinite(timestamp)) return "Reset não informado";
+        if (timestamp <= nowMs) return "Reset vencido · aguardando confirmação";
+        var now = new Date(nowMs);
+        var resetDate = new Date(timestamp);
+        if (resetDate.getFullYear() === now.getFullYear()
+            && resetDate.getMonth() === now.getMonth()
+            && resetDate.getDate() === now.getDate()) {
+            return "Hoje às " + resetDate.toLocaleTimeString("pt-BR", {
+                hour: "2-digit", minute: "2-digit",
+            });
+        }
+        return "Redefine em " + resetDate.toLocaleString("pt-BR", {
+            day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+        });
+    }
+
+    function formatResetCountdown(resetsAt, nowMs) {
+        nowMs = nowMs === undefined ? Date.now() : nowMs;
+        var timestamp = Date.parse(resetsAt);
+        if (!Number.isFinite(timestamp)) return "Reset não informado";
+        var minutes = Math.ceil((timestamp - nowMs) / 60000);
+        if (minutes <= 0) return "Reset vencido · aguardando confirmação";
+        var days = Math.floor(minutes / (24 * 60));
+        var remainingMinutes = minutes % (24 * 60);
+        var duration = days > 0
+            ? days + "d" + (remainingMinutes > 0 ? " " + formatDuration(remainingMinutes) : "")
+            : formatDuration(minutes);
+        return "Redefine em " + duration;
+    }
+
+    // Text and colors of one popup account card. Cinnamon and GNOME render
+    // this same view so both popups show identical content.
+    function buildAccountCardView(account, nowMs) {
+        nowMs = nowMs === undefined ? Date.now() : nowMs;
+        var displayMode = account.displayMode === "used" ? "used" : "remaining";
+        var providerColor = PROVIDER_COLORS[account.provider];
+        var sourceLabel = account.source === "statusLine"
+            ? "status line local"
+            : account.source === "desktop" ? "Claude Desktop"
+            : account.source === "oauth" ? "OAuth" : account.provider === "codex" ? "Codex" : null;
+        var sourceMetadata = sourceLabel
+            ? "Fonte: " + sourceLabel
+                + (account.checkedAt
+                    ? " · leitura " + formatSnapshotAge(Math.max(0, nowMs - Date.parse(account.checkedAt)))
+                    : "")
+                + (account.stale ? " (antiga)" : "")
+            : null;
+        var retryText = null;
+        var retryTime = Date.parse(account.collection && account.collection.nextRetryAt);
+        if (Number.isFinite(retryTime)) {
+            retryText = retryTime - nowMs > 0
+                ? "Nova tentativa em " + formatDuration((retryTime - nowMs) / 60000) + ". O refresh respeita esta espera."
+                : "Nova tentativa pendente. Use Atualizar agora ou verifique o serviço.";
+        }
+        var windows = account.windows.map(function (window) {
+            var percent = displayMode === "used" ? window.usedPercent : window.remainingPercent;
+            var duration = formatWindowDuration(window);
+            var observation = buildWindowView(window, displayMode, nowMs);
+            var hasObservation = Boolean(window.observedAt || window.sourceEventAt);
+            var resetSource = window.resetSource === "oauth"
+                ? "OAuth"
+                : window.resetSource === "statusLine" ? "status line local" : null;
+            var resetAge = window.resetCheckedAt
+                ? " lido " + formatSnapshotAge(Math.max(0, nowMs - Date.parse(window.resetCheckedAt)))
+                : "";
+            var resetSourceNote = resetSource && window.resetSource !== account.source
+                ? " · reset " + resetSource + resetAge
+                : "";
+            var oldReading = Boolean(account.stale) || (hasObservation && observation.state === "last-known");
+            var expired = observation.state === "expired";
+            var ageText = hasObservation && !expired
+                ? " · " + (oldReading ? "último dado" : "leitura") + " " + observation.ageText.replace(/^Observado /, "")
+                : "";
+            var details = [
+                "Fonte: " + (WINDOW_SOURCE_NAMES[window.source] || "não informada"),
+                "Leitura: " + observation.ageText.replace(/^Observado /, ""),
+                "Reset: " + formatResetCountdown(window.resetsAt, nowMs) + resetSourceNote,
+            ];
+            if (expired) details.push("Reset vencido · aguardando confirmação");
+            else if (oldReading) details.push("Dado antigo · pode não refletir o uso atual");
+            return {
+                id: window.id,
+                title: duration ? window.label + " (" + duration + ")" : window.label,
+                percentText: percent + "% " + (displayMode === "used" ? "usado" : "restante")
+                    + (account.stale ? " · antigo" : ""),
+                fraction: Math.max(0, Math.min(100, percent)) / 100,
+                resetText: formatCompactReset(window.resetsAt, nowMs) + ageText,
+                resetHighlighted: oldReading || expired,
+                detailsText: details.join("\n"),
+                accessibleText: observation.accessibleText,
+            };
+        });
+        return {
+            id: account.id,
+            provider: account.provider,
+            providerLabel: PROVIDER_LABELS[account.provider],
+            providerColor: providerColor,
+            plan: account.plan || null,
+            label: account.label,
+            metadata: [account.email, sourceMetadata].filter(Boolean).join(" · ") || null,
+            error: account.error || null,
+            retryText: retryText,
+            emptyText: account.windows.length === 0 && !account.error ? "Esta conta não reportou limites." : null,
+            windows: windows,
+        };
+    }
+
     function hasObservationTimestamp(window) {
         return observationTimestamp(window) !== undefined;
     }
@@ -534,6 +679,7 @@ var AiLimitsSnapshot = (function () {
     }
 
     return {
+        buildAccountCardView: buildAccountCardView,
         buildMenuView: buildMenuView,
         buildPanelLabels: buildPanelLabels,
         buildSnapshotView: buildSnapshotView,

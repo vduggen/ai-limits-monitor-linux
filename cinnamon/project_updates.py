@@ -1,5 +1,6 @@
 """Project clone discovery and private updater preferences."""
 
+import hashlib
 import json
 import os
 import shutil
@@ -19,6 +20,30 @@ CONFIGURATION_FILES = (
     "account_config.py",
     "project_updates.py",
 )
+GNOME_UUID = "ai-limits-monitor@vlduggen"
+# Root of the GNOME package: the stable loader and the GTK editor.
+GNOME_ROOT_FILES = ("metadata.json", "extension.js")
+# Runtime loaded by the loader from versions/<id>/ (see ADR-003).
+GNOME_VERSION_FILES = (
+    "main.js",
+    "cache-events.js",
+    "dashboard.js",
+    "refresh-request.js",
+    "stylesheet.css",
+    "claude.svg",
+    "codex.svg",
+)
+# Runtime files that pre-loader installs kept at the root. The root
+# stylesheet.css is removed by the loader itself, not here (see extension.js).
+GNOME_LEGACY_ROOT_FILES = (
+    "cache-events.js",
+    "dashboard.js",
+    "refresh-request.js",
+    "snapshot.js",
+    "claude.svg",
+    "codex.svg",
+)
+GNOME_KEPT_VERSIONS = 2
 
 
 def project_settings_path(
@@ -207,47 +232,111 @@ def sync_installed_frontend(project_root: Path, editor_path: Path) -> bool:
 
     frontend, target = detected_frontend
     source_root = Path(project_root)
-    if frontend == "cinnamon":
-        filenames = (
-            "metadata.json",
-            "applet.js",
-            "settings-schema.json",
-            *CONFIGURATION_FILES,
-            "claude.svg",
-            "codex.svg",
-        )
-        source_directory = source_root / "cinnamon"
-        configuration_directory = source_directory
-        snapshot_name = "ai_limits_snapshot.js"
-    else:
-        filenames = (
-            "metadata.json",
-            "extension.js",
-            "cache-events.js",
-            "dashboard.js",
-            "refresh-request.js",
-            "stylesheet.css",
-            "claude.svg",
-            "codex.svg",
-        )
-        source_directory = source_root / "gnome"
-        configuration_directory = source_root / "cinnamon"
-        snapshot_name = "snapshot.js"
+    if frontend == "gnome":
+        install_gnome_extension(source_root, target)
+        return True
 
+    filenames = (
+        "metadata.json",
+        "applet.js",
+        "settings-schema.json",
+        *CONFIGURATION_FILES,
+        "claude.svg",
+        "codex.svg",
+    )
+    source_directory = source_root / "cinnamon"
     files_to_copy = [
         (source_directory / filename, target / filename)
         for filename in filenames
     ]
-    if frontend == "gnome":
-        files_to_copy.extend(
-            (configuration_directory / filename, target / filename)
-            for filename in CONFIGURATION_FILES
-        )
     files_to_copy.append(
-        (source_root / "shared" / "snapshot.js", target / snapshot_name)
+        (source_root / "shared" / "snapshot.js", target / "ai_limits_snapshot.js")
     )
     _copy_files_atomically(files_to_copy)
     return True
+
+
+def install_gnome_extension(source_root: Path, target: Path) -> str:
+    """Install the GNOME package as a new version beside the stable loader.
+
+    The runtime goes to versions/<content hash>/ and becomes active through the
+    `current-version` file, so the Shell can load it without a logout. Returns
+    the installed version id.
+    """
+    source_root = Path(source_root)
+    target = Path(target)
+    version_sources = [
+        (source_root / "gnome" / filename, filename) for filename in GNOME_VERSION_FILES
+    ]
+    version_sources.append((source_root / "shared" / "snapshot.js", "snapshot.js"))
+    for source, _name in version_sources:
+        if not source.is_file():
+            raise FileNotFoundError(f"Arquivo da atualização não encontrado: {source}")
+    if not target.is_dir():
+        raise FileNotFoundError(f"Diretório de instalação do frontend não encontrado: {target}")
+
+    digest = hashlib.sha256()
+    for source, name in version_sources:
+        digest.update(name.encode() + b"\0" + source.read_bytes() + b"\0")
+    version_id = digest.hexdigest()[:12]
+
+    versions = target / "versions"
+    versions.mkdir(exist_ok=True)
+    version_directory = versions / version_id
+    if not version_directory.is_dir():
+        staging = Path(tempfile.mkdtemp(prefix=".staging-", dir=versions))
+        try:
+            for source, name in version_sources:
+                shutil.copy2(source, staging / name)
+            os.rename(staging, version_directory)
+        except Exception:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+    else:
+        # Same content, already installed: refresh its age for pruning.
+        os.utime(version_directory)
+
+    root_files = [(source_root / "gnome" / name, target / name) for name in GNOME_ROOT_FILES]
+    root_files.extend(
+        (source_root / "cinnamon" / name, target / name) for name in CONFIGURATION_FILES
+    )
+    _copy_files_atomically(root_files)
+
+    descriptor, temporary_path = tempfile.mkstemp(
+        prefix=".current-version.", suffix=".tmp", dir=target
+    )
+    with os.fdopen(descriptor, "w", encoding="utf-8") as current:
+        current.write(version_id + "\n")
+    os.replace(temporary_path, target / "current-version")
+
+    for name in GNOME_LEGACY_ROOT_FILES:
+        legacy = target / name
+        if legacy.is_file() and not legacy.is_symlink():
+            legacy.unlink()
+    _prune_gnome_versions(versions, version_id)
+    return version_id
+
+
+def _prune_gnome_versions(versions: Path, current_id: str) -> None:
+    """Keep the current version and the one a running Shell may still use."""
+    candidates = sorted(
+        (entry for entry in versions.iterdir()
+         if entry.is_dir() and not entry.is_symlink() and entry.name != current_id
+         and not entry.name.startswith(".")),
+        key=lambda entry: entry.stat().st_mtime,
+        reverse=True,
+    )
+    for stale in candidates[GNOME_KEPT_VERSIONS - 1:]:
+        shutil.rmtree(stale)
+
+
+def gnome_loader_active(target: Path) -> bool:
+    """Whether a running GNOME Shell has enabled the versioned loader."""
+    try:
+        pid = int((Path(target) / ".loader-pid").read_text(encoding="utf-8").strip())
+        return Path(f"/proc/{pid}/comm").read_text(encoding="utf-8").strip() == "gnome-shell"
+    except (OSError, ValueError):
+        return False
 
 
 def _copy_files_atomically(files: list[tuple[Path, Path]]) -> None:
@@ -413,14 +502,30 @@ class ProjectUpdater:
         )
 
     @property
+    def frontend(self) -> str | None:
+        detected = detect_frontend_target(self.editor_path)
+        return None if detected is None else detected[0]
+
+    @property
     def can_reload_frontend(self) -> bool:
         detected = detect_frontend_target(self.editor_path)
-        return detected is not None and detected[0] == "cinnamon"
+        if detected is None:
+            return False
+        frontend, target = detected
+        return frontend == "cinnamon" or gnome_loader_active(target)
 
     def reload_frontend(self) -> None:
-        """Ask Cinnamon to reload only this applet, never the desktop session."""
+        """Reload only this applet or extension, never the desktop session."""
         if not self.can_reload_frontend:
-            raise ProjectUpdateError("reload", "A recarga está disponível apenas no applet Cinnamon instalado.", False)
+            raise ProjectUpdateError(
+                "reload",
+                "A recarga sem sair da sessão fica disponível depois de um login com "
+                "o carregador versionado da extensão GNOME ou no applet Cinnamon.",
+                False,
+            )
+        if self.frontend == "gnome":
+            self._reload_gnome_extension()
+            return
         executable = self._require_executable("gdbus")
         try:
             result = self.command_runner(
@@ -433,6 +538,20 @@ class ProjectUpdater:
             raise ProjectUpdateError("reload", "Não foi possível solicitar a recarga do applet. Tente novamente.", False) from error
         if result.returncode != 0:
             raise ProjectUpdateError("reload", "O Cinnamon não aceitou a recarga do applet. Nenhuma sessão foi reiniciada.", False)
+
+    def _reload_gnome_extension(self) -> None:
+        """Disable and enable the extension; the loader imports the new version."""
+        executable = self._require_executable("gnome-extensions")
+        for action in ("disable", "enable"):
+            try:
+                result = self.command_runner(
+                    [executable, action, GNOME_UUID],
+                    check=False, capture_output=True, text=True, timeout=15,
+                )
+            except (OSError, subprocess.SubprocessError) as error:
+                raise ProjectUpdateError("reload", "Não foi possível solicitar a recarga da extensão. Tente novamente.", False) from error
+            if result.returncode != 0:
+                raise ProjectUpdateError("reload", "O GNOME Shell não aceitou a recarga da extensão. Nenhuma sessão foi reiniciada.", False)
 
     def set_project_path(self, path: str | Path) -> Path:
         project_path = validate_project_path(path, command_runner=self.command_runner)
@@ -697,3 +816,15 @@ class ProjectUpdater:
                 message = f"{error_context}: {message}"
             raise RuntimeError(message)
         return (result.stdout or "").strip()
+
+
+if __name__ == "__main__":
+    # Manual installation (scripts/gnome-extension.sh): install the GNOME
+    # extension from a clone into a target extension directory.
+    import sys
+
+    if len(sys.argv) != 3:
+        sys.exit("Uso: project_updates.py <clone> <diretório da extensão>")
+    target_directory = Path(sys.argv[2])
+    target_directory.mkdir(parents=True, exist_ok=True)
+    print(install_gnome_extension(Path(sys.argv[1]), target_directory))

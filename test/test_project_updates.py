@@ -138,6 +138,7 @@ class TemporaryProjectGitRepository(unittest.TestCase):
             "cinnamon/codex.svg": "initial codex icon\n",
             "gnome/metadata.json": '{"uuid":"ai-limits-monitor@vlduggen"}\n',
             "gnome/extension.js": "initial GNOME extension\n",
+            "gnome/main.js": "initial GNOME runtime\n",
             "gnome/cache-events.js": "initial cache events\n",
             "gnome/dashboard.js": "initial GNOME dashboard\n",
             "gnome/refresh-request.js": "initial GNOME refresh request\n",
@@ -218,8 +219,11 @@ class TemporaryProjectGitRepository(unittest.TestCase):
         (self.seed / "gnome" / "extension.js").write_text(
             "updated GNOME extension\n", encoding="utf-8"
         )
+        (self.seed / "gnome" / "main.js").write_text(
+            "updated GNOME runtime\n", encoding="utf-8"
+        )
         self.git(["add", "remote.txt"], cwd=self.seed)
-        self.git(["add", "cinnamon/applet.js", "gnome/extension.js"], cwd=self.seed)
+        self.git(["add", "cinnamon/applet.js", "gnome/extension.js", "gnome/main.js"], cwd=self.seed)
         self.git(["commit", "-m", message], cwd=self.seed)
         self.git(["push", "origin", "main"], cwd=self.seed)
 
@@ -351,31 +355,67 @@ class ProjectFrontendSyncTests(TemporaryProjectGitRepository):
         self.assertNotIn("pnpm", commands)
         self.assertEqual(restart_calls, [])
 
-    def test_syncCurrentFrontendCopiesFullGnomePackageWithoutBuildOrRestart(self):
+    def installed_tree(self, target):
+        return {
+            str(path.relative_to(target)): path.read_text(encoding="utf-8")
+            for path in sorted(target.rglob("*")) if path.is_file()
+        }
+
+    def test_syncCurrentFrontendInstallsGnomeRuntimeAsVersionBesideLoader(self):
         updater, target, commands, restart_calls = self.sync_updater("gnome")
+        # Leftovers of a pre-loader install: runtime JS goes, the root
+        # stylesheet stays for the old code until the loader removes it.
+        (target / "dashboard.js").write_text("legacy dashboard\n", encoding="utf-8")
+        (target / "stylesheet.css").write_text("legacy stylesheet\n", encoding="utf-8")
 
         updater.sync_current_frontend()
 
+        version = (target / "current-version").read_text(encoding="utf-8").strip()
+        self.assertRegex(version, r"^[0-9a-f]{12}$")
         self.assertEqual(
-            {path.name: path.read_text(encoding="utf-8") for path in target.iterdir()},
+            self.installed_tree(target),
             {
                 "metadata.json": '{"uuid":"ai-limits-monitor@vlduggen"}\n',
                 "extension.js": "initial GNOME extension\n",
-                "cache-events.js": "initial cache events\n",
-                "dashboard.js": "initial GNOME dashboard\n",
-                "refresh-request.js": "initial GNOME refresh request\n",
-                "stylesheet.css": "initial GNOME stylesheet\n",
-                "claude.svg": "initial GNOME claude icon\n",
-                "codex.svg": "initial GNOME codex icon\n",
                 "configure.py": "initial configure\n",
                 "config_paths.py": "initial config paths\n",
                 "account_config.py": "initial account config\n",
                 "project_updates.py": "initial project updater\n",
-                "snapshot.js": "initial shared snapshot\n",
+                "stylesheet.css": "legacy stylesheet\n",
+                "current-version": version + "\n",
+                f"versions/{version}/main.js": "initial GNOME runtime\n",
+                f"versions/{version}/cache-events.js": "initial cache events\n",
+                f"versions/{version}/dashboard.js": "initial GNOME dashboard\n",
+                f"versions/{version}/refresh-request.js": "initial GNOME refresh request\n",
+                f"versions/{version}/stylesheet.css": "initial GNOME stylesheet\n",
+                f"versions/{version}/claude.svg": "initial GNOME claude icon\n",
+                f"versions/{version}/codex.svg": "initial GNOME codex icon\n",
+                f"versions/{version}/snapshot.js": "initial shared snapshot\n",
             },
         )
         self.assertNotIn("pnpm", commands)
         self.assertEqual(restart_calls, [])
+
+    def test_gnomeInstallKeepsOnlyCurrentAndPreviousVersions(self):
+        module = load_project_updates()
+        self.updater()
+        source = self.project
+        target = self.root / "extension"
+        target.mkdir()
+        installed = []
+        for revision in range(3):
+            (source / "gnome" / "main.js").write_text(f"runtime {revision}\n", encoding="utf-8")
+            installed.append(module.install_gnome_extension(source, target))
+            os.utime(target / "versions" / installed[-1], (revision + 1, revision + 1))
+
+        self.assertEqual(len(set(installed)), 3)
+        self.assertEqual(
+            sorted(path.name for path in (target / "versions").iterdir()),
+            sorted(installed[1:]),
+        )
+        self.assertEqual((target / "current-version").read_text(encoding="utf-8"), installed[2] + "\n")
+        # Reinstalling identical content reuses its version directory.
+        self.assertEqual(module.install_gnome_extension(source, target), installed[2])
 
     def test_syncCurrentFrontendRejectsDirtyCloneWithoutCopyingFiles(self):
         updater, target, _commands, _restart_calls = self.sync_updater("cinnamon")
@@ -440,11 +480,40 @@ class ProjectFrontendSyncTests(TemporaryProjectGitRepository):
             updater.reload_frontend()
         self.assertEqual(restart_calls, [])
 
-    def test_reloadFrontendRejectsGnome(self):
-        updater, _target, _commands, restart_calls = self.sync_updater("gnome")
+    def test_reloadFrontendRequiresGnomeLoaderInTheRunningShell(self):
+        updater, target, _commands, restart_calls = self.sync_updater("gnome")
         self.assertFalse(updater.can_reload_frontend)
-        with self.assertRaisesRegex(RuntimeError, "apenas no applet Cinnamon"):
+        with self.assertRaisesRegex(RuntimeError, "carregador versionado"):
             updater.reload_frontend()
+        # A marker left by a Shell that is no longer running does not count.
+        (target / ".loader-pid").write_text(f"{os.getpid()}\n", encoding="utf-8")
+        self.assertFalse(updater.can_reload_frontend)
+        self.assertEqual(restart_calls, [])
+
+    def test_reloadFrontendDisablesAndEnablesOnlyTheGnomeExtension(self):
+        updater, _target, _commands, restart_calls = self.sync_updater("gnome")
+        calls = []
+        updater.executable_lookup = lambda name: "/usr/bin/" + name
+        updater.command_runner = lambda command, **kwargs: (
+            calls.append((command, kwargs)) or subprocess.CompletedProcess(command, 0, "", "")
+        )
+        with patch.object(load_project_updates(), "gnome_loader_active", return_value=True):
+            self.assertTrue(updater.can_reload_frontend)
+            updater.reload_frontend()
+        self.assertEqual([call[0] for call in calls], [
+            ["/usr/bin/gnome-extensions", "disable", "ai-limits-monitor@vlduggen"],
+            ["/usr/bin/gnome-extensions", "enable", "ai-limits-monitor@vlduggen"],
+        ])
+        self.assertTrue(all(call[1]["timeout"] == 15 for call in calls))
+        self.assertEqual(restart_calls, [])
+
+    def test_reloadFrontendReportsGnomeFailureWithoutRestartingSession(self):
+        updater, _target, _commands, restart_calls = self.sync_updater("gnome")
+        updater.executable_lookup = lambda name: "/usr/bin/" + name
+        updater.command_runner = lambda command, **kwargs: subprocess.CompletedProcess(command, 1, "", "error")
+        with patch.object(load_project_updates(), "gnome_loader_active", return_value=True):
+            with self.assertRaisesRegex(RuntimeError, "Nenhuma sessão foi reiniciada"):
+                updater.reload_frontend()
         self.assertEqual(restart_calls, [])
 
     def test_syncCurrentFrontendRequiresKnownInstallation(self):
@@ -812,8 +881,10 @@ class ProjectUpdateApplyTests(TemporaryProjectGitRepository):
             (target / "extension.js").read_text(encoding="utf-8"),
             "updated GNOME extension\n",
         )
+        version = target / "versions" / (target / "current-version").read_text(encoding="utf-8").strip()
+        self.assertEqual((version / "main.js").read_text(encoding="utf-8"), "updated GNOME runtime\n")
         self.assertEqual(
-            (target / "snapshot.js").read_text(encoding="utf-8"),
+            (version / "snapshot.js").read_text(encoding="utf-8"),
             "initial shared snapshot\n",
         )
 

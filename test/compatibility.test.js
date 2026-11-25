@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, readdir, mkdtemp, rm } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
+import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -80,7 +79,7 @@ test("visibleBrandingUsesTheGenericLinuxProductName", async () => {
     assert.ok(source.includes(productName), `Expected source to include ${productName}`);
 });
 
-test("manualInstallCommandsIncludeAccountAndCacheHelpers", async (t) => {
+test("manualInstallCommandsIncludeAccountAndCacheHelpers", async () => {
   const readme = await read("README.md");
   const cinnamonReadme = await read("cinnamon/README.md");
   const gnomeReadme = await read("gnome/README.md");
@@ -89,10 +88,6 @@ test("manualInstallCommandsIncludeAccountAndCacheHelpers", async (t) => {
   const cinnamonCopies = copyCommandsContaining(cinnamonReadme, "cp cinnamon/metadata.json");
   const rootCinnamonSnapshotCopies = copyCommandsContaining(readme, "cp shared/snapshot.js");
   const cinnamonSnapshotCopies = copyCommandsContaining(cinnamonReadme, "cp shared/snapshot.js");
-  const gnomeCopies = copyCommandsContaining(gnomeReadme, "cp gnome/metadata.json");
-  const gnomeSnapshotCopies = copyCommandsContaining(gnomeReadme, "cp shared/snapshot.js");
-  const gnomeEditorCopies = copyCommandsContaining(gnomeReadme, "cp cinnamon/configure.py");
-
   assert.equal(rootCinnamonCopies.length, 1);
   assert.ok(rootCinnamonCopies[0].includes("cinnamon/account_config.py"));
   assert.equal(cinnamonCopies.length, 1);
@@ -101,46 +96,20 @@ test("manualInstallCommandsIncludeAccountAndCacheHelpers", async (t) => {
   assert.ok(rootCinnamonSnapshotCopies[0].includes('"$TARGET/ai_limits_snapshot.js"'));
   assert.equal(cinnamonSnapshotCopies.length, 1);
   assert.ok(cinnamonSnapshotCopies[0].includes('"$TARGET/ai_limits_snapshot.js"'));
-  assert.equal(gnomeCopies.length, 2);
-  assert.ok(gnomeCopies.every((command) => command.includes("gnome/cache-events.js")));
-  assert.ok(gnomeCopies.every((command) => !command.includes("gnome/snapshot.js")));
-  assert.equal(gnomeSnapshotCopies.length, 2);
-  assert.ok(gnomeSnapshotCopies.every((command) => command.includes('"$TARGET/snapshot.js"')));
-  assert.equal(gnomeEditorCopies.length, 2);
-  assert.ok(gnomeEditorCopies.every((command) => command.includes("cinnamon/account_config.py")));
-  const target = await mkdtemp('/tmp/opencode/install-contract-');
-  t.after(() => rm(target, {recursive: true, force: true}));
-  const copyCommands = [gnomeCopies[0], gnomeSnapshotCopies[0]]
-    .map((command) => command.replaceAll('\\', ''))
-    .join('\n');
-  const copied = spawnSync('/bin/sh', ['-c', copyCommands], {
-    env: {...process.env, TARGET: target},
-    encoding: 'utf8',
-  });
-  assert.equal(copied.status, 0, copied.stderr);
-  const installedFiles = [
-    ['extension.js', 'gnome/extension.js'],
-    ['snapshot.js', 'shared/snapshot.js'],
-    ['cache-events.js', 'gnome/cache-events.js'],
-    ['dashboard.js', 'gnome/dashboard.js'],
-    ['refresh-request.js', 'gnome/refresh-request.js'],
-    ['stylesheet.css', 'gnome/stylesheet.css'],
-  ];
-  for (const [installedFile, sourceFile] of installedFiles)
-    assert.equal(await readFile(`${target}/${installedFile}`, 'utf8'), await read(sourceFile));
+  // GNOME installs through the versioned installer (ADR-003), not cp commands.
+  assert.doesNotMatch(gnomeReadme, /cp gnome\//);
+  assert.equal((gnomeReadme.match(/scripts\/gnome-extension\.sh install/g) ?? []).length, 2);
 });
 
 test("manualInstallCommandsCopyProjectUpdaterWithConfigure", async () => {
   const readme = await read("README.md");
   const cinnamonReadme = await read("cinnamon/README.md");
-  const gnomeReadme = await read("gnome/README.md");
   const installCommands = [
     ...copyCommandsContaining(readme, "cp cinnamon/metadata.json"),
     ...copyCommandsContaining(cinnamonReadme, "cp cinnamon/metadata.json"),
-    ...copyCommandsContaining(gnomeReadme, "cp cinnamon/configure.py"),
   ];
 
-  assert.equal(installCommands.length, 4);
+  assert.equal(installCommands.length, 2);
   assert.ok(installCommands.every((command) => command.includes("cinnamon/configure.py")));
   assert.ok(
     installCommands.every((command) => command.includes("cinnamon/project_updates.py")),

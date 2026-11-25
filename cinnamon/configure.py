@@ -220,7 +220,9 @@ class ConfigurationWindow(Gtk.Window):
         self.sync_frontend_button.connect("clicked", self._on_sync_frontend)
         buttons.pack_start(self.sync_frontend_button, False, False, 0)
 
-        self.reload_frontend_button = Gtk.Button.new_with_label("Recarregar applet")
+        self.reload_frontend_button = Gtk.Button.new_with_label(
+            "Recarregar extensão" if self._is_gnome_frontend() else "Recarregar applet"
+        )
         self.reload_frontend_button.connect("clicked", self._on_reload_frontend)
         content.pack_start(self.reload_frontend_button, False, False, 0)
         self.reload_frontend_button.set_visible(
@@ -474,15 +476,25 @@ class ConfigurationWindow(Gtk.Window):
         )
         self._refresh_project_update_controls()
 
+    def _is_gnome_frontend(self):
+        return getattr(self.project_updater, "frontend", None) == "gnome"
+
     def _frontend_activation_hint(self):
         if getattr(self.project_updater, "can_reload_frontend", False):
-            return "Clique em Recarregar applet para ativar a interface, sem sair da sessão."
+            button = "Recarregar extensão" if self._is_gnome_frontend() else "Recarregar applet"
+            return f"Clique em {button} para ativar a interface, sem sair da sessão."
+        if self._is_gnome_frontend():
+            return ("A extensão foi instalada com o novo carregador. Encerre a sessão uma "
+                    "vez para ativá-lo; depois, as atualizações serão aplicadas sem logout.")
         return "Para ativar JavaScript já carregado, pode ser necessário recarregar a sessão."
 
     def _on_reload_frontend(self, _button):
         if self._update_busy or not getattr(self.project_updater, "can_reload_frontend", False):
             return
-        self.update_status.set_text("Recarregando apenas o applet; seus programas continuarão abertos…")
+        self.update_status.set_text(
+            ("Recarregando apenas a extensão" if self._is_gnome_frontend() else "Recarregando apenas o applet")
+            + "; seus programas continuarão abertos…"
+        )
         self._start_project_operation(
             self.project_updater.reload_frontend,
             self._on_frontend_reloaded,
@@ -492,7 +504,8 @@ class ConfigurationWindow(Gtk.Window):
     def _on_frontend_reloaded(self, _result):
         self._update_busy = False
         self.update_status.set_text(
-            "Recarga solicitada ao Cinnamon. Abra o AI Limits no painel para conferir. "
+            ("Recarga solicitada ao GNOME Shell. " if self._is_gnome_frontend() else "Recarga solicitada ao Cinnamon. ")
+            + "Abra o AI Limits no painel para conferir. "
             "Sua sessão e o serviço de coleta não foram reiniciados."
         )
         self._refresh_project_update_controls()
