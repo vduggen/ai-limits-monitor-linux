@@ -89,6 +89,11 @@ export function createCoordinator(options: {
         const binding = current.binding.identityId ? resolveBinding(a, current.binding, identityId) : { ...current.binding, identityId };
         current = { binding, windows: [], revision: current.revision + 1, rateLimitLevel: current.rateLimitLevel, lastAttemptAt: current.lastAttemptAt };
       }
+      // A limit the provider stopped reporting would otherwise linger forever once expired.
+      const reported = new Set(result.usage.windows.map(w => w.id));
+      current = { ...current, windows: current.windows.filter(w => reported.has(w.id)
+        || (w.source !== "claude-sdk" && w.source !== "codex-rpc")
+        || !w.resetsAt || Date.parse(w.resetsAt) > completed) };
       current = mergeObservation(current, { binding: current.binding, source: a.provider === "claude" ? "claude-sdk" : "codex-rpc",
         observedAt: new Date(now).toISOString(), fetchedAt: result.fetchedAt, identityConfidence: identityId ? "confirmed" : "profile", windows: result.usage.windows });
       values.set(a.id, { ...current, email: result.usage.email, plan: result.usage.plan, failure: undefined, error: undefined,

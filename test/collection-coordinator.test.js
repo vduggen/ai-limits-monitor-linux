@@ -114,3 +114,16 @@ test('a failed publication is reported once without poisoning later local and re
   await new Promise(r=>setImmediate(r)); assert.ok(outputs.length);
   await c.refresh(request); assert.equal(calls,1); await c.close();
 });
+
+test('an expired limit the provider stopped reporting is dropped', async () => {
+  let now = start, windows = [quota(10), { ...quota(0), id: 'seven_day_fable', kind: 'weekly', resetsAt: new Date(start + 1000).toISOString() }];
+  const c = createCoordinator({ accounts: [account], config: { probeTimeoutSeconds: 5 }, initial: [], now: () => now, random: () => 0, publish: async () => {},
+    probe: async () => ({ usage: { ...account, status: 'ok', checkedAt: new Date(now).toISOString(), windows } }) });
+  await c.refresh(request);
+  windows = [quota(20)];
+  await c.refresh(request);
+  assert.equal(c.states()[0].windows.length, 2);
+  now = start + 2000;
+  await c.refresh(request);
+  assert.deepEqual(c.states()[0].windows.map(w => w.id), ['five_hour']);
+});
