@@ -9,7 +9,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {isUsageCacheEvent} from './cache-events.js';
 import './snapshot.js';
-import {Dashboard, attachTooltip, popupContentWidth} from './dashboard.js';
+import {Dashboard, attachTooltip, popupContentWidth, popupSourceAlignment} from './dashboard.js';
 import {submitRefreshRequest, readRefreshResult} from './refresh-request.js';
 
 const CACHE_DIRECTORY = GLib.build_filenamev([
@@ -54,7 +54,6 @@ export class AiLimitsMonitor {
         // Like the Cinnamon applet, the popup opens aligned with the indicator.
         // GNOME places it from the theme's arrow metrics instead, far from the
         // left edge of a wide panel label.
-        this._indicator.menu.actor.connect('notify::allocation', () => this._alignMenuWithIndicator());
         // Like Cinnamon, reread the cache whenever the popup opens.
         this._indicator.menu.connect('open-state-changed', (_menu, isOpen) => {
             if (isOpen)
@@ -402,6 +401,7 @@ export class AiLimitsMonitor {
         });
         const maxHeight = Math.max(120, workArea.height / scale - 160);
         this._dashboard.setSize(width, maxHeight);
+        this._alignMenuWithIndicator();
     }
 
     // Horizontal space between the popup's visible edge and the card list.
@@ -413,20 +413,22 @@ export class AiLimitsMonitor {
             + popupNode.get_horizontal_padding();
     }
 
-    // Shifts the popup so its visible edge starts where the indicator starts,
-    // without leaving the monitor. The translation does not change the
-    // allocation, so this handler does not trigger itself.
+    // Points the popup at the spot that makes its visible edge start where the
+    // indicator starts. Moving the popup itself does not stick: the open and
+    // close animations reset its translation.
     _alignMenuWithIndicator() {
-        const popup = this._indicator.menu.actor;
-        const content = this._indicator.menu.box;
-        const monitor = Main.layoutManager.findMonitorForActor(this._indicator);
-        if (!monitor)
-            return;
-        const [indicatorX] = this._indicator.get_transformed_position();
-        const shift = indicatorX - (popup.x + content.x);
-        const minShift = monitor.x - popup.x;
-        const maxShift = monitor.x + monitor.width - (popup.x + popup.width);
-        popup.translation_x = Math.round(Math.max(minShift, Math.min(shift, maxShift)));
+        const menu = this._indicator.menu;
+        const indicatorNode = this._indicator.get_theme_node();
+        const contentBox = indicatorNode.get_content_box(this._indicator.get_allocation_box());
+        const pointerNode = menu.actor.get_theme_node();
+        menu.setSourceAlignment(popupSourceAlignment({
+            contentX: contentBox.x1,
+            contentWidth: contentBox.x2 - contentBox.x1,
+            arrowBorderWidth: pointerNode.get_length('-arrow-border-width'),
+            arrowBase: pointerNode.get_length('-arrow-base'),
+            arrowBorderRadius: pointerNode.get_length('-arrow-border-radius'),
+            popupInset: menu.box.get_theme_node().get_margin(St.Side.LEFT),
+        }));
     }
 
     _launchConfiguration() {

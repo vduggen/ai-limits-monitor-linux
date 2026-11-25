@@ -11,7 +11,7 @@ const Main = { uiGroup: { add_child(child) { tooltips.push(child); }, set_child_
   layoutManager: { findMonitorForActor: () => ({ x: 0, y: 0, width: 1366, height: 768 }) } };
 const Clutter = { ActorAlign: { CENTER: 'center' } };
 const Pango = { EllipsizeMode: { NONE: 0 } };
-const { Dashboard, AccountCard, popupContentWidth } = new Function('St', 'PopupMenu', 'Main', 'Pango', 'Clutter', `${source.replace(/^import .*;\n/gm, '').replaceAll('export class ', 'class ').replaceAll('export function ', 'function ').replaceAll('export const ', 'const ')}; return {Dashboard, AccountCard, popupContentWidth};`)(St, PopupMenu, Main, Pango, Clutter);
+const { Dashboard, AccountCard, popupContentWidth, popupSourceAlignment } = new Function('St', 'PopupMenu', 'Main', 'Pango', 'Clutter', `${source.replace(/^import .*;\n/gm, '').replaceAll('export class ', 'class ').replaceAll('export function ', 'function ').replaceAll('export const ', 'const ')}; return {Dashboard, AccountCard, popupContentWidth, popupSourceAlignment};`)(St, PopupMenu, Main, Pango, Clutter);
 const now = Date.parse('2026-10-21T12:00:00Z');
 const account = { id: 'a', label: 'Claude pessoal', provider: 'claude', status: 'error', error: '429', displayMode: 'remaining',
   plan: 'max', email: 'pessoa@example.test', source: 'statusLine', checkedAt: '2026-10-21T11:57:00Z',
@@ -140,4 +140,15 @@ test('dashboard size applies to the card list and keeps the header on the cards 
   assert.equal(dashboard.scroll.style, 'width: 505px; max-height: 700px;');
   assert.equal(dashboard.header.style, 'max-width: 495px;');
   dashboard.destroy();
+});
+
+test('popup anchor reproduces the GNOME box pointer placement', () => {
+  const whiteSur = { contentX: 0, contentWidth: 545, arrowBorderWidth: 0, arrowBase: 32, arrowBorderRadius: 14, popupInset: 12 };
+  // Box starts 44px before the source point, content 12px after the box.
+  assert.equal(popupSourceAlignment(whiteSur), 32 / 545);
+  // Arrow without room: the box starts half a border before the point.
+  assert.equal(popupSourceAlignment({ ...whiteSur, arrowBorderRadius: 0, arrowBase: 24, arrowBorderWidth: 2, popupInset: 0 }), 1 / 545);
+  // Content inset larger than the offset cannot point before the indicator.
+  assert.equal(popupSourceAlignment({ ...whiteSur, popupInset: 60 }), 0);
+  assert.equal(popupSourceAlignment({ ...whiteSur, contentWidth: 0 }), 0);
 });

@@ -36,10 +36,14 @@ class Menu {
   constructor() {
     this.items = [];
     this.handlers = new Map();
-    // Box pointer placed by GNOME 41px left of the indicator; content inset 12px.
-    this.actor = { x: 1198, width: 506, translation_x: 0, handlers: new Map(),
-      connect(signal, callback) { this.handlers.set(signal, callback); } };
-    this.box = { x: 12 };
+    // WhiteSur metrics: 14px arrow radius, 32px arrow base, 12px content margin.
+    const lengths = { "-arrow-border-width": 0, "-arrow-base": 32, "-arrow-border-radius": 14 };
+    this.actor = { get_theme_node: () => ({ get_length: (name) => lengths[name] }) };
+    this.box = { get_theme_node: () => ({ get_margin: () => 12 }) };
+  }
+
+  setSourceAlignment(alignment) {
+    this.sourceAlignment = alignment;
   }
 
   connect(signal, callback) {
@@ -109,7 +113,7 @@ function makeHarness() {
     }
   }
 
-  const St = { BoxLayout: Widget, Icon: Widget, Label: Widget };
+  const St = { BoxLayout: Widget, Icon: Widget, Label: Widget, Side: { LEFT: 3 } };
   const Clutter = { ActorAlign: { CENTER: "center" } };
 
   const schedule = (duration, callback) => {
@@ -170,11 +174,11 @@ function makeHarness() {
       },
     },
   };
+  const anchors = [];
   const Main = {
     uiGroup: {add_child() {}},
     notify: (title, body) => notifications.push({ title, body }),
     panel: { addToStatusArea() {} },
-    layoutManager: { findMonitorForActor: () => ({ x: 0, width: 1920 }) },
   };
   const PopupMenu = {
     PopupMenuItem: MenuItem,
@@ -197,6 +201,7 @@ function makeHarness() {
     "Dashboard",
     "attachTooltip",
     "popupContentWidth",
+    "popupSourceAlignment",
     "submitRefreshRequest",
     "readRefreshResult",
     `${executableSource}\nreturn AiLimitsMonitor;`,
@@ -207,7 +212,11 @@ function makeHarness() {
     Clutter,
     class {},
     Main,
-    {Button: class extends Widget { constructor() { super(); this.menu = new Menu(); } get_transformed_position() { return [this.x ?? 1239, 0]; } }},
+    {Button: class extends Widget {
+      constructor() { super(); this.menu = new Menu(); }
+      get_allocation_box() { return { x1: 0, x2: 545 }; }
+      get_theme_node() { return { get_content_box: (box) => box }; }
+    }},
     PopupMenu,
     isUsageCacheEvent,
     { AiLimitsSnapshot: {
@@ -227,12 +236,14 @@ function makeHarness() {
     },
     (actor, text) => { actor.tooltipText = text; },
     () => 450,
+    (geometry) => { anchors.push(geometry); return 0.25; },
     (root, request, callback) => requests.push({root, request, callback}),
     (root, id) => Promise.resolve(refreshResults.get(id) ?? null),
   );
 
   return {
     ExtensionUnderTest,
+    anchors,
     cacheDirectory,
     monitor,
     notifications,
@@ -437,20 +448,15 @@ test("dashboardReceivesOnlySupportedAccountsAndMenuOpeningRereadsCache", () => {
   extension.disable();
 });
 
-test("popupOpensAlignedWithTheIndicatorAndStaysOnTheMonitor", () => {
+test("popupIsAnchoredSoItsEdgeStartsAtTheIndicator", () => {
   const harness = makeHarness();
   harness.setSnapshot({ createdAt: "now", accounts: [] });
   const extension = makeEnabledExtension(harness);
   extension.metadata = { name: "Monitor" };
   extension.enable();
-  const popup = extension._indicator.menu.actor;
-  popup.handlers.get("notify::allocation")();
-  // Visible edge (popup.x + content inset + shift) starts at the indicator.
-  assert.equal(popup.x + 12 + popup.translation_x, 1239);
-
-  // An indicator near the right edge cannot push the popup off the monitor.
-  extension._indicator.x = 1800;
-  popup.handlers.get("notify::allocation")();
-  assert.equal(popup.x + popup.width + popup.translation_x, 1920);
+  extension._alignMenuWithIndicator();
+  assert.deepEqual(harness.anchors.at(-1), { contentX: 0, contentWidth: 545, arrowBorderWidth: 0,
+    arrowBase: 32, arrowBorderRadius: 14, popupInset: 12 });
+  assert.equal(extension._indicator.menu.sourceAlignment, 0.25);
   extension.disable();
 });

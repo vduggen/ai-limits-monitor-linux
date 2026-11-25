@@ -112,6 +112,23 @@ export function popupContentWidth({indicatorWidth, chromeWidth, availableWidth})
     return Math.floor(Math.max(120, Math.min(width, availableWidth)));
 }
 
+// Source alignment that makes the popup's visible edge start at the
+// indicator's left edge. It reproduces how GNOME's BoxPointer places a popup
+// with arrow alignment 0 (boxpointer.js, _reposition): the box starts half
+// an arrow margin before the source point, unless the arrow would not fit and
+// the box is moved back to start half a border before it. The popup content
+// is then inset by its own CSS margin.
+export function popupSourceAlignment({contentX, contentWidth, arrowBorderWidth, arrowBase, arrowBorderRadius, popupInset}) {
+    if (contentWidth <= 0)
+        return 0;
+    const halfMargin = (4 * arrowBorderRadius + arrowBorderWidth + arrowBase) / 2;
+    const halfBorder = arrowBorderWidth / 2;
+    const arrowFits = halfMargin > halfBorder + arrowBorderRadius + Math.floor(arrowBase / 2);
+    const boxOffset = arrowFits ? halfMargin : Math.min(halfMargin, halfBorder);
+    // A negative value would point before the indicator; GNOME clamps it to 0.
+    return Math.max(0, Math.min(1, (boxOffset - popupInset - contentX) / contentWidth));
+}
+
 export class AccountCard {
     constructor(account, snapshotApi, nowMs) {
         this.snapshotApi = snapshotApi;
