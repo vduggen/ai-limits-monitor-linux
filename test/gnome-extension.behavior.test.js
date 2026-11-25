@@ -196,6 +196,7 @@ function makeHarness() {
     "globalThis",
     "Dashboard",
     "attachTooltip",
+    "popupContentWidth",
     "submitRefreshRequest",
     "readRefreshResult",
     `${executableSource}\nreturn AiLimitsMonitor;`,
@@ -225,6 +226,7 @@ function makeHarness() {
       update(view, accounts) { this.updated = {view, accounts}; } updateTime() {} destroy() {}
     },
     (actor, text) => { actor.tooltipText = text; },
+    () => 450,
     (root, request, callback) => requests.push({root, request, callback}),
     (root, id) => Promise.resolve(refreshResults.get(id) ?? null),
   );

@@ -9,7 +9,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {isUsageCacheEvent} from './cache-events.js';
 import './snapshot.js';
-import {Dashboard, attachTooltip} from './dashboard.js';
+import {Dashboard, attachTooltip, popupContentWidth} from './dashboard.js';
 import {submitRefreshRequest, readRefreshResult} from './refresh-request.js';
 
 const CACHE_DIRECTORY = GLib.build_filenamev([
@@ -386,16 +386,31 @@ export class AiLimitsMonitor {
         this._updateMenuSize();
     }
 
-    // Same limits as Cinnamon: 440px cards plus the 10px scrollbar gutter, as tall as the work area allows.
+    // The popup is as wide as the panel indicator that opens it, between the
+    // Cinnamon size (440px cards plus the 10px scrollbar gutter) and a limit,
+    // and as tall as the work area allows.
     _updateMenuSize() {
         const monitor = Main.layoutManager?.currentMonitor;
         if (!monitor || !this._dashboard?.scroll)
             return;
         const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
         const workArea = Main.layoutManager.getWorkAreaForMonitor(monitor.index);
-        const width = Math.min(450, Math.max(120, workArea.width / scale - 64));
+        const width = popupContentWidth({
+            indicatorWidth: this._indicator.width / scale,
+            chromeWidth: this._menuChromeWidth() / scale,
+            availableWidth: workArea.width / scale - 64,
+        });
         const maxHeight = Math.max(120, workArea.height / scale - 160);
-        this._dashboard.scroll.set_style(`width: ${width}px; max-height: ${maxHeight}px;`);
+        this._dashboard.setSize(width, maxHeight);
+    }
+
+    // Horizontal space between the popup's visible edge and the card list.
+    _menuChromeWidth() {
+        const contentNode = this._indicator.menu.box.get_theme_node();
+        const popupNode = this._dashboard.box.get_theme_node();
+        return contentNode.get_horizontal_padding()
+            + contentNode.get_border_width(St.Side.LEFT) + contentNode.get_border_width(St.Side.RIGHT)
+            + popupNode.get_horizontal_padding();
     }
 
     // Shifts the popup so its visible edge starts where the indicator starts,

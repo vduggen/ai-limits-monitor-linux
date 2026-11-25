@@ -42,6 +42,8 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
   espaço reservado à direita dos cartões, independentemente do tema.
 - O popup GNOME abre alinhado à borda esquerda do indicador, como no Cinnamon,
   sem sair do monitor.
+- O popup GNOME acompanha a largura do indicador, com o tamanho do Cinnamon como
+  mínimo e 600 px de lista de cartões como limite.
 - Identifica leituras provenientes do Claude Desktop no menu de contas.
 - O configurador GTK verifica atualizações do clone e, após confirmação, aplica
   fast-forward seguro, compila e sincroniza somente a extensão GNOME que o abriu.

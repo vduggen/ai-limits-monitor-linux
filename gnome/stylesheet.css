@@ -8,6 +8,7 @@
    visible margins match on both sides (same rule as Cinnamon). */
 .ai-limits-popup { spacing: 8px; padding: 16px 6px 16px 16px; }
 
+/* Header and card widths follow the card list width set by Dashboard.setSize(). */
 .ai-limits-header { spacing: 12px; padding: 0 10px 8px 0; max-width: 440px; }
 .ai-limits-heading { spacing: 3px; }
 .ai-limits-heading-title { color: #ffffff; font-size: 1.12em; font-weight: 700; }
@@ -21,15 +22,15 @@
 /* Themes give scrollbars their own margins (WhiteSur: 6px + 8px), which made the
    overlay scrollbar cover the cards. Fit it inside the 10px gutter instead. */
 .ai-limits-scroll StScrollBar { margin: 0; padding: 0 0 0 4px; min-width: 6px; width: 6px; }
-.ai-limits-card { spacing: 9px; padding: 12px; max-width: 440px; border-radius: 14px; border: 1px solid rgba(128, 128, 128, 0.24); background-color: rgba(128, 128, 128, 0.12); }
+.ai-limits-card { spacing: 9px; padding: 12px; border-radius: 14px; border: 1px solid rgba(128, 128, 128, 0.24); background-color: rgba(128, 128, 128, 0.12); }
 .ai-limits-card-heading { spacing: 8px; }
 .ai-limits-provider-dot { font-size: 14px; }
 .ai-limits-provider-name { color: #f7f8fa; font-size: 1.05em; font-weight: 700; }
 .ai-limits-plan { color: #f1f3f5; font-size: 0.85em; padding: 3px 8px; border-radius: 12px; background-color: rgba(128, 128, 128, 0.24); }
 .ai-limits-account-label { color: #f5f6f7; font-size: 0.92em; font-weight: 600; }
 .ai-limits-metadata { color: #dce2e8; font-size: 0.85em; }
-.ai-limits-error { font-size: 0.92em; color: #e97870; max-width: 410px; }
-.ai-limits-retry { color: #e1e5e9; font-size: 0.85em; max-width: 410px; }
+.ai-limits-error { font-size: 0.92em; color: #e97870; }
+.ai-limits-retry { color: #e1e5e9; font-size: 0.85em; }
 .ai-limits-empty { color: #e1e5e9; font-size: 0.9em; }
 
 .ai-limits-window { spacing: 6px; padding-top: 6px; }

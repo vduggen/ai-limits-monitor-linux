@@ -102,6 +102,16 @@ function setActionSensitive(button, sensitive) {
     button.sensitive = sensitive;
 }
 
+// Card list width (cards plus the scrollbar gutter): the Cinnamon size at
+// least, the indicator width when wider, never above the limit or the screen.
+export const MIN_CONTENT_WIDTH = 450;
+export const MAX_CONTENT_WIDTH = 600;
+
+export function popupContentWidth({indicatorWidth, chromeWidth, availableWidth}) {
+    const width = Math.max(MIN_CONTENT_WIDTH, Math.min(indicatorWidth - chromeWidth, MAX_CONTENT_WIDTH));
+    return Math.floor(Math.max(120, Math.min(width, availableWidth)));
+}
+
 export class AccountCard {
     constructor(account, snapshotApi, nowMs) {
         this.snapshotApi = snapshotApi;
@@ -197,6 +207,7 @@ export class Dashboard {
         this.item.add_child(this.box);
 
         const header = new St.BoxLayout({style_class: 'ai-limits-header', x_expand: true});
+        this.header = header;
         const heading = new St.BoxLayout({vertical: true, style_class: 'ai-limits-heading', x_expand: true});
         makeLabel(heading, 'ai-limits-heading-title', {text: 'AI Limits'});
         this.status = makeLabel(heading, 'ai-limits-status');
@@ -216,6 +227,13 @@ export class Dashboard {
         this.scroll.set_child(this.content);
         this.box.add_child(this.scroll);
         menu.addMenuItem(this.item);
+    }
+
+    // The header keeps the 10px scrollbar gutter of the card list, so the
+    // buttons end where the cards end.
+    setSize(width, maxHeight) {
+        this.scroll.set_style(`width: ${width}px; max-height: ${maxHeight}px;`);
+        this.header.set_style(`max-width: ${width - 10}px;`);
     }
 
     setRefreshSensitive(sensitive) {
