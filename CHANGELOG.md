@@ -20,6 +20,8 @@ Mudanças notáveis do projeto, registradas por componente. Consulte
 
 ### GNOME e interfaces compartilhadas
 
+- O indicador GNOME passa para o lado esquerdo do painel, onde há mais espaço
+  para as várias contas (versão 15).
 - O popup GNOME passa a seguir o layout e as ações do applet Cinnamon: cabeçalho
   com Configurar, Atualizar agora e Reiniciar serviço; cartões com plano, e-mail,
   fonte, erro, nova tentativa e janelas empilhadas com duração, barra na cor do

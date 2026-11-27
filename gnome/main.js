@@ -66,7 +66,7 @@ export class AiLimitsMonitor {
         this._panelBox = panelBox;
         this._panelEntries = [];
         this._indicator.add_child(panelBox);
-        Main.panel.addToStatusArea(this.uuid, this._indicator);
+        Main.panel.addToStatusArea(this.uuid, this._indicator, 1, 'left');
 
         this._monitorCache();
         this._refresh();
